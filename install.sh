@@ -1,4 +1,8 @@
-#!/bin/bash
+#!/bin/sh
+
+if echo "$OSTYPE" | grep -E '^darwin'; then
+    IS_MACOS="true"
+fi
 
 downloadFonts() {
     if [ -z $TMPDIR ]; then
@@ -7,7 +11,7 @@ downloadFonts() {
 
     local DOWNLOAD_TO="$TMPDIR/dotfiles-fonts"
 
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+    if [ "$IS_MACOS" = "true" ]; then
         local FONT_FOLDER="$HOME/Library/Fonts"
     else
         local FONT_FOLDER="$HOME/.local/share/fonts" 
@@ -24,7 +28,9 @@ downloadFonts() {
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$FONT_FOLDER/MesloLGS NF Bold Italic.ttf"
 }
 
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+if [ "$IS_MACOS" = "true" ]; then
+    downloadFonts
+else
     # Install curl, tar, git, other dependencies if missing
     PACKAGES_NEEDED="\
         curl \
@@ -62,8 +68,6 @@ fi
 EOF
     fi
 
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    downloadFonts
 fi
 
 # Oh My Zsh!
