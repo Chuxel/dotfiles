@@ -5,8 +5,11 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 RC_SNIPPET="if ! lsof /usr/bin/Xtigervnc > /dev/null 2>&1; then tigervncserver -rfbport 5900 -localhost > /dev/null 2>&1; fi"
+TILIX_SNIPPET='if [ $TILIX_ID ] || [ \$VTE_VERSION ]; then source /etc/profile.d/vte*.sh; fi'
 
 apt-get update
+
+# Install Lubuntu and TigerVNC
 apt-get install -y lubuntu-desktop tigervnc-xorg-extension tigervnc-standalone-server tigervnc-scraping-server tigervnc-common
 if ! grep "${RC_SNIPPET}" ~/.bashrc > /dev/null 2>&1; then
     echo "${RC_SNIPPET}" >> ~/.bashrc
@@ -16,8 +19,26 @@ if ! grep "${RC_SNIPPET}" ~/.zshrc > /dev/null 2>&1; then
 fi
 if ! lsof /usr/bin/Xtigervnc > /dev/null 2>&1; then tigervncserver -rfbport 5900 -localhost > /dev/null 2>&1; fi
 
+# Setup Tilix - On older Ubuntu, Tilix is in a PPA. On Debian Strech, its in backports
+if [[ -z $(apt-cache --names-only search ^tilix$) ]]; then
+    apt-get install -y --no-install-recommends lsb-release
+    if [ "$(lsb_release -is)" = "Ubuntu" ]; then
+        apt-get install -y --no-install-recommends apt-transport-https software-properties-common
+        add-apt-repository -y ppa:webupd8team/terminix
+    else
+        echo "deb http://deb.debian.org/debian $(lsb_release -cs)-backports main" > /etc/apt/sources.list.d/$(lsb_release -cs)-backports.list
+    fi
+    apt-get update
+fi
+apt-get install -y tilix
+if ! grep 'TILIX_ID' ~/.bashrc > /dev/null 2>&1; then
+    echo "${TILIX_SNIPPET}" >> ~/.bashrc
+fi
+if ! grep 'TILIX_ID' ~/.zshrc > /dev/null 2>&1; then
+    echo "${TILIX_SNIPPET}" >> ~/.zshrc
+fi
 
-# Install VS Code Insiders
+# Install VS Code and VS Code Insiders
 curl -sSL 'https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64' -o /tmp/code.deb
 apt-get -y install /tmp/code.deb
 curl -sSL 'https://go.microsoft.com/fwlink/?LinkID=760865' -o /tmp/code-insiders.deb
