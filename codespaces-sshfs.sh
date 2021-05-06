@@ -22,7 +22,11 @@ else
 fi
 
 # Mount the remote filesystem
-sshfs $SSHFS_DEBUG_ARGS "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -ovolname="$DESCRIPTION" -p $PORT -o workaround=nonodelay -o transform_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null  -C
+if echo "$OSTYPE" | grep -E '^darwin' > /dev/null 2>&1; then
+    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -ovolname="$DESCRIPTION" -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
+else
+    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
+fi
 
 # Wait for user input.
 echo -e "\nMount: \"$MOUNTPOINT\" \n\nPress \"enter\" to unmount when you are done, or press Ctrl+C to unmount from Finder manually later."
