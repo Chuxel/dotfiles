@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: codespace-sshfs.sh <container user> <local forwarded SSH port> <codespace folder> <debug mode flag>
+# Usage: devcontainer-sshfs.sh [container user] [local forwarded SSH port] [dev container folder] [debug mode flag]
 
 set -e
 USERNAME=${1:-vscode}
@@ -10,7 +10,7 @@ FOLDER="${3:-"/workspaces"}"
 DEBUG="${4:-"false"}"
 
 # Make the directory where the remote filesystem will be mounted
-DESCRIPTION="GitHub Codespaces ($(openssl rand -hex 2))"
+DESCRIPTION="Dev Container ($(openssl rand -hex 2))"
 MOUNTPOINT="$HOME/sshfs/$DESCRIPTION"
 mkdir -p "$MOUNTPOINT"
 
