@@ -1,4 +1,5 @@
 #!/bin/sh
+cd "$(dirname $0)"
 
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
@@ -73,11 +74,18 @@ fi
 # Oh My Zsh!
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+    cp -f .zshrc $HOME
 fi
 
+# powerline 10k
 if [ ! -f "$HOME/.p10k.zsh" ]; then
     git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
+    cp -f .p10k.zsh $HOME
 fi 
 
-cp -f .zshrc $HOME
-cp -f .p10k.zsh $HOME
+# SSH config file
+if [ ! -f "$HOME/.ssh/config" ]; then
+    mkdir -p "$HOME/.ssh"
+    cp -f .ssh/config "$HOME/.ssh/"
+fi
+
