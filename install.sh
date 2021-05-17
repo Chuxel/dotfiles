@@ -86,11 +86,14 @@ fi
 # SSH config file
 if [ ! -f "$HOME/.ssh/config" ]; then
     mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
     cp -f .ssh/config "$HOME/.ssh/"
+    chmod 600 "$HOME/.ssh/config"
 
     # In codespaces, used GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
     if [ "${CODESPACES}" = "true" ]; then
         curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
+        chmod 600 "$HOME/.ssh/authorized_keys"
     fi
 fi
 
