@@ -74,8 +74,8 @@ fi
 # Oh My Zsh!
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-    cp -f .zshrc $HOME
 fi
+cp -f .zshrc $HOME
 
 # powerline 10k
 if [ ! -f "$HOME/.p10k.zsh" ]; then
@@ -89,11 +89,12 @@ if [ ! -f "$HOME/.ssh/config" ]; then
     chmod 700 "$HOME/.ssh"
     cp -f .ssh/config "$HOME/.ssh/"
     chmod 600 "$HOME/.ssh/config"
-
-    # In codespaces, used GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
-    if [ "${CODESPACES}" = "true" ]; then
-        curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
-        chmod 600 "$HOME/.ssh/authorized_keys"
-    fi
 fi
+
+# In codespaces, used GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
+if [ "${CODESPACES}" = "true" ]; then
+    curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
+    chmod 600 "$HOME/.ssh/authorized_keys"
+fi
+
 
