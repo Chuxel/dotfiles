@@ -8,4 +8,4 @@ USER_AT_HOST="${USERNAME}@localhost"
 PORT="${2:-2222}"
 
 #ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "node@localhost"
-ssh -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$USER_AT_HOST"
+ssh -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null "$USER_AT_HOST"

@@ -23,9 +23,9 @@ fi
 
 # Mount the remote filesystem
 if echo "$OSTYPE" | grep -E '^darwin' > /dev/null 2>&1; then
-    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -ovolname="$DESCRIPTION" -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
+    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -ovolname="$DESCRIPTION" -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
 else
-    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
+    sshfs "$USER_AT_HOST:$FOLDER" "$MOUNTPOINT" -p $PORT -o follow_symlinks -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -C $SSHFS_DEBUG_ARGS
 fi
 
 # Wait for user input.
