@@ -1,5 +1,6 @@
 #!/bin/sh
 cd "$(dirname $0)"
+OVERWRITE="${1:-false}"
 
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
@@ -75,26 +76,29 @@ fi
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 fi
-cp -f .zshrc $HOME
+if [ ! -e "$HOME/.zshrc" ] || [ "${OVERWRITE}" = "true" ]; then
+    ln -s -F "$(pwd)/.zshrc" $HOME
+fi
 
 # powerline 10k
-if [ ! -f "$HOME/.p10k.zsh" ]; then
-    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
-    cp -f .p10k.zsh $HOME
+P110K_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+if [ ! -d "$P110K_DIR" ]; then
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P110K_DIR"
+fi
+if [ ! -e "$HOME/.p10k.zsh" ] || [ "${OVERWRITE}" = "true" ]; then
+    ln -s -F "$(pwd)/.p10k.zsh" $HOME
 fi 
 
-# SSH config file
-if [ ! -f "$HOME/.ssh/config" ]; then
+# SSH config file - copy rather than link so machine specific updates can happen
+if [ ! -e "$HOME/.ssh/config" ] || [ "${OVERWRITE}" = "true" ]; then
     mkdir -p "$HOME/.ssh"
     chmod 700 "$HOME/.ssh"
     cp -f .ssh/config "$HOME/.ssh/"
     chmod 600 "$HOME/.ssh/config"
 fi
 
-# In codespaces, used GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
+# In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
 if [ "${CODESPACES}" = "true" ]; then
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
-
-
