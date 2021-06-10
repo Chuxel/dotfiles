@@ -77,7 +77,8 @@ if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 fi
 if [ ! -e "$HOME/.zshrc" ] || [ "${OVERWRITE}" = "true" ]; then
-    ln -s -F "$(pwd)/.zshrc" $HOME
+    rm -f  "$HOME/.zshrc"
+    ln -s "$(pwd)/.zshrc" $HOME
 fi
 
 # powerline 10k
@@ -86,7 +87,8 @@ if [ ! -d "$P110K_DIR" ]; then
     git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P110K_DIR"
 fi
 if [ ! -e "$HOME/.p10k.zsh" ] || [ "${OVERWRITE}" = "true" ]; then
-    ln -s -F "$(pwd)/.p10k.zsh" $HOME
+    rm -f  "$HOME/.p10k.zsh"
+    ln -s "$(pwd)/.p10k.zsh" $HOME
 fi 
 
 # SSH config file - copy rather than link so machine specific updates can happen
