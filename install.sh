@@ -1,6 +1,6 @@
 #!/bin/sh
 cd "$(dirname $0)"
-OVERWRITE="${1:-false}"
+OVERWRITE="${1:-true}"
 
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
