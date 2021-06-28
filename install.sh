@@ -99,6 +99,11 @@ if [ ! -e "$HOME/.ssh/config" ] || [ "${OVERWRITE}" = "true" ]; then
     chmod 600 "$HOME/.ssh/config"
 fi
 
+if [ ! -e "$HOME/.gitconfig" ] || [ "${OVERWRITE}" = "true" ]; then
+    cp -f .gitconfig $HOME/
+
+fi
+
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
 if [ "${CODESPACES}" = "true" ]; then
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
