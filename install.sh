@@ -99,9 +99,10 @@ if [ ! -e "$HOME/.ssh/config" ] || [ "${OVERWRITE}" = "true" ]; then
     chmod 600 "$HOME/.ssh/config"
 fi
 
+# Set git username and email
 if [ ! -e "$HOME/.gitconfig" ] || [ "${OVERWRITE}" = "true" ]; then
-    cp -f .gitconfig $HOME/
-
+    git config --global user.email 'chuck_lantz@hotmail.com'
+    git config --global user.name 'Chuck Lantz'
 fi
 
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
