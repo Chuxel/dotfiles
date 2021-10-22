@@ -109,5 +109,8 @@ fi
 if [ "${CODESPACES}" = "true" ]; then
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
-    echo "#!/bin/sh\nwhile sleep 60; do echo 'Keeping alive...'; done" > $HOME/.local/bin/keep-me-alive
+    if [ ! -e "$HOME/.local/bin/keep-me-alive" ]; then
+        mkdir -p $HOME/.local/bin
+        echo "#!/bin/sh\nwhile sleep 60; do echo 'Keeping alive...'; done" > $HOME/.local/bin/keep-me-alive
+    fi
 fi
