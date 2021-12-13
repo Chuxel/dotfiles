@@ -125,3 +125,6 @@ EOF
         chmod +x  $HOME/.local/bin/keep-me-alive
     fi
 fi
+
+# Get rid of annoying git message on pull behaviors
+git config --global pull.rebase false
