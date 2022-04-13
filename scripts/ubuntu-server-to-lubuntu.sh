@@ -50,4 +50,4 @@ curl -sSL 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64
 sudo apt-get -y install /tmp/chrome.deb
 rm /tmp/chrome.deb
 
-echo "Restart so settings take effect."
+echo "Connect using SSH as follows to access the VNC port: ssh -L 5900:localhost:5900 user@ip-or-dns"
