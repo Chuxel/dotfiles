@@ -1,5 +1,7 @@
 #!/bin/bash
 
+USER_NAME="${1:-chuck}"
+
 # Default: Exit on any failure.
 set -e
 
@@ -20,7 +22,7 @@ git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git
 
 # Install Moby
 bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
-usermod -aG docker $(whoami)
+usermod -aG docker ${USER_NAME}
 
 # Install nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
 distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
