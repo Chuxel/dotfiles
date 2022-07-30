@@ -15,7 +15,8 @@ fi
 
 # Install git, other useful stuff
 apt-get update
-apt-get install git curl ca-certificates nano zip unzip zsh
+apt-get install -y git curl ca-certificates nano zip unzip zsh
+git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
 # Install Moby
 bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
