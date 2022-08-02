@@ -21,14 +21,27 @@ apt-get install -y git curl ca-certificates nano zip unzip zsh
 git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
 # Install Moby
-bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
-usermod -aG docker ${USER_NAME}
+if ! type docker > /dev/null 2>&1; then
+    bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
+    usermod -aG docker ${USER_NAME}
+fi
 
 # Install nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
-      && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-      && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
-            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-            tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+. /etc/os-release
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -fsSL https://nvidia.github.io/libnvidia-container/$ID$VERSION_ID/libnvidia-container.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 apt-get update
 apt-get install -y nvidia-docker2
+
+# Install nvm, node, yarn, node-gyp deps
+su $USERNAME -c '\
+    if ! type nvm  > /dev/null 2>&1; then \
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash \
+        && . "$HOME/.nvm/nvm.sh" \
+        && nvm install lts/*; \
+    fi \
+    && if ! type yarn > /dev/null 2>&1; then npm install -g yarn fi'
+apt-get update
+apt-get install python3-minimal gcc g++ make
