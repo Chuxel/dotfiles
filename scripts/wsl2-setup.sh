@@ -1,6 +1,6 @@
 #!/bin/bash
 
-USER_NAME="${1:-chuck}"
+USERNAME="${1:-chuck}"
 
 # Default: Exit on any failure.
 set -e
@@ -20,10 +20,17 @@ apt-get update
 apt-get install -y git curl ca-certificates nano zip unzip zsh
 git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
+# Install nvm, node, yarn, node-gyp deps
+su ${USERNAME} -c '\
+    if ! type nvm  > /dev/null 2>&1; then curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash && . "$HOME/.nvm/nvm.sh" && nvm install lts/*; fi \
+    && if ! type yarn > /dev/null 2>&1; then npm install -g yarn; fi'
+apt-get update
+apt-get install -y python3-minimal gcc g++ make
+
 # Install Moby
 if ! type docker > /dev/null 2>&1; then
     bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
-    usermod -aG docker ${USER_NAME}
+    usermod -aG docker ${USERNAME}
 fi
 
 # Install nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
@@ -34,14 +41,3 @@ curl -fsSL https://nvidia.github.io/libnvidia-container/$ID$VERSION_ID/libnvidia
     tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 apt-get update
 apt-get install -y nvidia-docker2
-
-# Install nvm, node, yarn, node-gyp deps
-su $USERNAME -c '\
-    if ! type nvm  > /dev/null 2>&1; then \
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash \
-        && . "$HOME/.nvm/nvm.sh" \
-        && nvm install lts/*; \
-    fi \
-    && if ! type yarn > /dev/null 2>&1; then npm install -g yarn fi'
-apt-get update
-apt-get install python3-minimal gcc g++ make
