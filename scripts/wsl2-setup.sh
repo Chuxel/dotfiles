@@ -21,9 +21,11 @@ apt-get install -y git curl ca-certificates nano zip unzip zsh
 git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
 # Install nvm, node, yarn, node-gyp deps
-su ${USERNAME} -c '\
-    if ! type nvm  > /dev/null 2>&1; then curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash && . "$HOME/.nvm/nvm.sh" && nvm install lts/*; fi \
-    && if ! type yarn > /dev/null 2>&1; then npm install -g yarn; fi'
+if [ ! -e "/home/${USERNAME}/.nvm" ]; then
+    su ${USERNAME} -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash'
+fi
+su ${USERNAME} -c '. "$HOME/.nvm/nvm.sh" && if ! type node > /dev/null 2>&1; then nvm install --lts; fi' 
+su ${USERNAME} -c '. "$HOME/.nvm/nvm.sh" && if ! type yarn > /dev/null 2>&1; then npm install -g yarn; fi'
 apt-get update
 apt-get install -y python3-minimal gcc g++ make
 
