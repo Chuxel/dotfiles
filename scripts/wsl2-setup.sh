@@ -41,9 +41,17 @@ if ! type docker > /dev/null 2>&1; then
     apt-get install -y nvidia-docker2
 fi
 
+# Setup kubectl
+if ! type kubectl > /dev/null 2>&1; then
+    curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
+    apt-get update
+    apt-get install -y kubectl
+fi
+
 # Install kind
 if ! type kind > /dev/null 2>&1; then
     curl -sSLo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-$(dpkg --print-architecture)
     chmod +x ./kind
-    sudo mv ./kind /usr/local/bin/kind
+    mv ./kind /usr/local/bin/kind
 fi
