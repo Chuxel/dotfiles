@@ -41,4 +41,9 @@ if ! type docker > /dev/null 2>&1; then
     apt-get install -y nvidia-docker2
 fi
 
-
+# Install kind
+if ! type kind > /dev/null 2>&1; then
+    curl -sSLo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-$(dpkg --print-architecture)
+    chmod +x ./kind
+    sudo mv ./kind /usr/local/bin/kind
+fi
