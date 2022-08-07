@@ -109,21 +109,6 @@ fi
 if [ "${CODESPACES}" = "true" ]; then
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
-    if [ ! -e "$HOME/.local/bin/keep-me-alive" ] || [ "${OVERWRITE}" = "true" ]; then
-        mkdir -p $HOME/.local/bin
-        cat << 'EOF' > $HOME/.local/bin/keep-me-alive
-#!/bin/sh
-min_to_keep_alive=${1:-infinite}
-current_minutes=0
-echo "Keeping alive for ${min_to_keep_alive} minutes."
-until [ "${current_minutes}" = "${min_to_keep_alive}" ]; do
-    sleep 60
-    current_minutes=$(( current_minutes + 1 ))
-    echo -n "${current_minutes} "
-done
-EOF
-        chmod +x  $HOME/.local/bin/keep-me-alive
-    fi
 fi
 
 # Get rid of annoying git message on pull behaviors
