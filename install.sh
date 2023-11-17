@@ -1,6 +1,6 @@
 #!/bin/sh
 cd "$(dirname $0)"
-OVERWRITE="${1:-true}"
+overwrite="${1:-true}"
 
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
@@ -11,41 +11,49 @@ downloadFonts() {
         TMPDIR=/tmp
     fi
 
-    local DOWNLOAD_TO="$TMPDIR/dotfiles-fonts"
+    local download_to="$TMPDIR/dotfiles-fonts"
 
     if [ "$IS_MACOS" = "true" ]; then
-        local FONT_FOLDER="$HOME/Library/Fonts"
+        local font_folder="$HOME/Library/Fonts"
     else
-        local FONT_FOLDER="$HOME/.local/share/fonts" 
+        local font_folder="$HOME/.local/share/fonts" 
     fi
 
-    mkdir -p "$FONT_FOLDER" "$DOWNLOAD_TO"
-    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2009.22/CascadiaCode-2009.22.zip -o "$DOWNLOAD_TO/cascadia.zip"
-    unzip -o "$DOWNLOAD_TO/cascadia.zip" -d "$DOWNLOAD_TO/cascadia"
-    mv -f "$DOWNLOAD_TO/cascadia/ttf/"*.ttf "$FONT_FOLDER/"
-    rm -rf "$DOWNLOAD_TO"
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf -o "$FONT_FOLDER/MesloLGS NF Regular.ttf" 
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf -o "$FONT_FOLDER/MesloLGS NF Bold.ttf"
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$FONT_FOLDER/MesloLGS NF Italic.ttf"
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$FONT_FOLDER/MesloLGS NF Bold Italic.ttf"
+    mkdir -p "$font_folder" "$download_to"
+    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2009.22/CascadiaCode-2009.22.zip -o "$download_to/cascadia.zip"
+    unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
+    mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
+
+    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf -o "$font_folder/MesloLGS NF Regular.ttf" 
+    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf -o "$font_folder/MesloLGS NF Bold.ttf"
+    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$font_folder/MesloLGS NF Italic.ttf"
+    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
+
+    curl -sSL https://github.com/githubnext/monaspace/releases/download/v1.000/monaspace-v1.000.zip -o "$download_to/monaspace.zip"
+    unzip -o "$download_to/monaspace.zip" -d "$download_to/monaspace"
+    rm -rf "$HOME"/.local/share/fonts/Monaspace*
+    cp "$download_to"/monaspace/fonts/otf/* ~/.local/share/fonts
+    cp "$download_to"/monaspace/fonts/variable/* ~/.local/share/fonts
+
+    rm -rf "$download_to"
 }
 
 if [ "$IS_MACOS" = "true" ]; then
     downloadFonts
 else
     # Install curl, tar, git, other dependencies if missing
-    PACKAGES_NEEDED="\
+    packages_needed="\
         curl \
         ca-certificates \
         zip \
         unzip \
         zsh"
 
-    if ! dpkg -s ${PACKAGES_NEEDED} > /dev/null 2>&1; then
+    if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
             sudo apt-get update
         fi
-        sudo apt-get -y install ${PACKAGES_NEEDED}
+        sudo apt-get -y install ${packages_needed}
     fi
 
     if ! type git > /dev/null 2>&1; then
@@ -76,7 +84,7 @@ fi
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 fi
-if [ ! -e "$HOME/.zshrc" ] || [ "${OVERWRITE}" = "true" ]; then
+if [ ! -e "$HOME/.zshrc" ] || [ "${overwrite}" = "true" ]; then
     rm -f  "$HOME/.zshrc"
     ln -s "$(pwd)/.zshrc" $HOME
 fi
@@ -86,13 +94,13 @@ P110K_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
 if [ ! -d "$P110K_DIR" ]; then
     git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P110K_DIR"
 fi
-if [ ! -e "$HOME/.p10k.zsh" ] || [ "${OVERWRITE}" = "true" ]; then
+if [ ! -e "$HOME/.p10k.zsh" ] || [ "${overwrite}" = "true" ]; then
     rm -f  "$HOME/.p10k.zsh"
     ln -s "$(pwd)/.p10k.zsh" $HOME
 fi 
 
 # SSH config file - copy rather than link so machine specific updates can happen
-if [ ! -e "$HOME/.ssh/config" ] || [ "${OVERWRITE}" = "true" ]; then
+if [ ! -e "$HOME/.ssh/config" ] || [ "${overwrite}" = "true" ]; then
     mkdir -p "$HOME/.ssh"
     chmod 700 "$HOME/.ssh"
     cp -f .ssh/config "$HOME/.ssh/"
@@ -100,7 +108,7 @@ if [ ! -e "$HOME/.ssh/config" ] || [ "${OVERWRITE}" = "true" ]; then
 fi
 
 # Set git username and email
-if [ ! -e "$HOME/.gitconfig" ] || [ "${OVERWRITE}" = "true" ]; then
+if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
     git config --global user.email 'chuck_lantz@hotmail.com'
     git config --global user.name 'Chuck Lantz'
 fi
