@@ -1,6 +1,6 @@
 #!/bin/bash
 
-USERNAME="${1:-chuck}"
+USERNAME="${1:-${USER:-chuck}}"
 
 # Default: Exit on any failure.
 set -e
@@ -22,7 +22,7 @@ git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git
 
 # Install nvm, node, yarn, node-gyp deps
 if [ ! -e "/home/${USERNAME}/.nvm" ]; then
-    su ${USERNAME} -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash'
+    su ${USERNAME} -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash'
 fi
 su ${USERNAME} -c '. "$HOME/.nvm/nvm.sh" && if ! type node > /dev/null 2>&1; then nvm install --lts; fi' 
 su ${USERNAME} -c '. "$HOME/.nvm/nvm.sh" && if ! type yarn > /dev/null 2>&1; then npm install -g yarn; fi'
@@ -31,7 +31,7 @@ apt-get install -y python3-minimal gcc g++ make
 
 # Install Moby
 if ! type docker > /dev/null 2>&1; then
-    bash -c "$(wget -qO- https://github.com/Chuxel/moby-vscode/raw/main/install-moby.sh)"
+    bash -c "$(wget -qO- https://github.com/Chuxel/moby-setup/raw/main/install-moby.sh)"
     usermod -aG docker ${USERNAME}
     # Install nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
     . /etc/os-release
