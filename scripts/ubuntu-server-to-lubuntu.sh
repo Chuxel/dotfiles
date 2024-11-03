@@ -50,4 +50,14 @@ curl -sSL 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64
 sudo apt-get -y install /tmp/chrome.deb
 rm /tmp/chrome.deb
 
+# Update for Ubuntu 24.04
+sudo apt-get update
+sudo apt-get -y install software-properties-common
+
+# Ensure necessary dependencies for Ubuntu 24.04
+sudo apt-get -y install curl ca-certificates zip unzip zsh
+
+# Remove deprecated or unnecessary packages
+sudo apt-get -y remove some-deprecated-package
+
 echo "Connect using SSH as follows to access the VNC port: ssh -L 5900:localhost:5900 user@ip-or-dns"

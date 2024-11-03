@@ -121,3 +121,62 @@ fi
 
 # Get rid of annoying git message on pull behaviors
 git config --global pull.rebase false
+
+# Compatibility check for Ubuntu 24.04
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [ "$VERSION_ID" = "24.04" ]; then
+        echo "Ubuntu 24.04 detected. Applying specific configurations."
+        # Update dependencies and package installations for Ubuntu 24.04
+        packages_needed_24_04="\
+            build-essential \
+            libssl-dev \
+            libreadline-dev \
+            zlib1g-dev \
+            libsqlite3-dev \
+            libbz2-dev \
+            libffi-dev \
+            liblzma-dev \
+            python3-openssl"
+
+        if ! dpkg -s ${packages_needed_24_04} > /dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get -y install ${packages_needed_24_04}
+        fi
+
+        # Ensure compatibility of tools like Tilix, Oh My Zsh!, and Powerlevel10k with Ubuntu 24.04
+        if ! grep 'TILIX_ID' ~/.bashrc > /dev/null 2>&1; then 
+        tee -a "$HOME/.bashrc" > /dev/null \
+<< EOF
+
+# Add Tilix
+if [ \$TILIX_ID ] || [ \$VTE_VERSION ]; then
+  source /etc/profile.d/vte*.sh
+fi
+EOF
+        fi
+
+        if [ ! -d "$HOME/.oh-my-zsh" ]; then
+            sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        fi
+        if [ ! -e "$HOME/.zshrc" ] || [ "${overwrite}" = "true" ]; then
+            rm -f  "$HOME/.zshrc"
+            ln -s "$(pwd)/.zshrc" $HOME
+        fi
+
+        P110K_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+        if [ ! -d "$P110K_DIR" ]; then
+            git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P110K_DIR"
+        fi
+        if [ ! -e "$HOME/.p10k.zsh" ] || [ "${overwrite}" = "true" ]; then
+            rm -f  "$HOME/.p10k.zsh"
+            ln -s "$(pwd)/.p10k.zsh" $HOME
+        fi 
+
+        # Fonts installation for Ubuntu 24.04
+        if dpkg -s "fontconfig" > /dev/null 2>&1; then
+            downloadFonts
+            fc-cache -f -v
+        fi
+    fi
+fi
