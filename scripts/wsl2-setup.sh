@@ -57,3 +57,8 @@ if ! type kind > /dev/null 2>&1; then
     chmod +x ./kind
     mv ./kind /usr/local/bin/kind
 fi
+
+# Install xubuntu-specific packages
+if lsb_release -is | grep -E '^Xubuntu'; then
+    apt-get install -y xubuntu-desktop
+fi

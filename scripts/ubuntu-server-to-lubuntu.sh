@@ -10,7 +10,12 @@ TILIX_SNIPPET='if [ $TILIX_ID ] || [ $VTE_VERSION ]; then source /etc/profile.d/
 sudo apt-get update
 
 # Install Lubuntu and TigerVNC
-sudo apt-get install -y lubuntu-desktop tigervnc-xorg-extension tigervnc-standalone-server tigervnc-scraping-server tigervnc-common
+if lsb_release -is | grep -E '^Lubuntu'; then
+    sudo apt-get install -y lubuntu-desktop tigervnc-xorg-extension tigervnc-standalone-server tigervnc-scraping-server tigervnc-common
+elif lsb_release -is | grep -E '^Xubuntu'; then
+    sudo apt-get install -y xubuntu-desktop tigervnc-xorg-extension tigervnc-standalone-server tigervnc-scraping-server tigervnc-common
+fi
+
 if ! grep "${RC_SNIPPET}" $HOME/.bashrc > /dev/null 2>&1; then
     echo "${RC_SNIPPET}" >> $HOME/.bashrc
 fi
