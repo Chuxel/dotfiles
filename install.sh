@@ -6,6 +6,10 @@ if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
 fi
 
+if lsb_release -is | grep -E '^Xubuntu'; then
+    IS_XUBUNTU="true"
+fi
+
 downloadFonts() {
     if [ -z $TMPDIR ]; then
         TMPDIR=/tmp
@@ -48,6 +52,10 @@ else
         zip \
         unzip \
         zsh"
+
+    if [ "$IS_XUBUNTU" = "true" ]; then
+        packages_needed="$packages_needed xubuntu-desktop"
+    fi
 
     if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
