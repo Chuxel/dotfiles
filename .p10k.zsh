@@ -1163,7 +1163,7 @@
   #     '*test*'  TEST
   #     '*'       OTHER)
   #
-  # If your current terraform workspace is "project_test", its class is TEST because "project_test"
+  # Whenever the current terraform workspace is "project_test", its class is TEST because "project_test"
   # doesn't match the pattern '*prod*' but does match '*test*'.
   #
   # You can define different colors, icons and content expansions for different classes:

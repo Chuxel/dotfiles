@@ -17,7 +17,7 @@ fi
 
 # Install git, other useful stuff
 apt-get update
-apt-get install -y git curl ca-certificates nano zip unzip zsh
+apt-get install -y git curl ca-certificates nano zip unzip zsh wget
 git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
 # Install nvm, node, yarn, node-gyp deps
