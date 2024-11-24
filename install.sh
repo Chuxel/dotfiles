@@ -29,7 +29,7 @@ downloadFonts() {
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$font_folder/MesloLGS NF Italic.ttf"
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
 
-    curl -sSL https://github.com/githubnext/monaspace/releases/download/v1.000/monaspace-v1.000.zip -o "$download_to/monaspace.zip"
+    curl -sSL https://github.com/githubnext/monaspace/releases/download/v1.101/monaspace-v1.000.zip -o "$download_to/monaspace.zip"
     unzip -o "$download_to/monaspace.zip" -d "$download_to/monaspace"
     rm -rf "$HOME"/.local/share/fonts/Monaspace*
     cp "$download_to"/monaspace/fonts/otf/* ~/.local/share/fonts
