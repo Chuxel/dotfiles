@@ -20,7 +20,7 @@ downloadFonts() {
     fi
 
     mkdir -p "$font_folder" "$download_to"
-    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2009.22/CascadiaCode-2009.22.zip -o "$download_to/cascadia.zip"
+    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2105.24/CascadiaCode-2105.24.zip -o "$download_to/cascadia.zip"
     unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
     mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
 
@@ -47,7 +47,13 @@ else
         ca-certificates \
         zip \
         unzip \
-        zsh"
+        zsh \
+        libfuse2 \
+        libssl-dev \
+        python3-dev \
+        python3-pip \
+        python3-setuptools \
+        build-essential"
 
     if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
