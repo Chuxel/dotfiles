@@ -20,7 +20,7 @@ downloadFonts() {
     fi
 
     mkdir -p "$font_folder" "$download_to"
-    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2009.22/CascadiaCode-2009.22.zip -o "$download_to/cascadia.zip"
+    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2105.24/CascadiaCode-2105.24.zip -o "$download_to/cascadia.zip"
     unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
     mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
 

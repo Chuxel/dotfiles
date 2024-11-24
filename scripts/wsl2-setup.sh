@@ -46,7 +46,7 @@ fi
 # Setup kubectl
 if ! type kubectl > /dev/null 2>&1; then
     curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
-    echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
+    echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-focal main" | tee /etc/apt/sources.list.d/kubernetes.list
     apt-get update
     apt-get install -y kubectl
 fi
