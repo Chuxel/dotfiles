@@ -47,3 +47,10 @@ or back to cmd
 ```powershell
 New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\cmd.exe" -PropertyType String -Force
 ```
+
+# Allow GCM through SSH on Windows
+This will use the GCM on the remote machine when doing source control operations.
+
+```powershell
+git config --global credential.credentialStore dpapi
+```
