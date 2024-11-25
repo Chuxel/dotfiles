@@ -100,12 +100,12 @@ if [ ! -e "$HOME/.p10k.zsh" ] || [ "${overwrite}" = "true" ]; then
 fi 
 
 # SSH config file - copy rather than link so machine specific updates can happen
-if [ ! -e "$HOME/.ssh/config" ] || [ "${overwrite}" = "true" ]; then
-    mkdir -p "$HOME/.ssh"
-    chmod 700 "$HOME/.ssh"
-    cp -f .ssh/config "$HOME/.ssh/"
-    chmod 600 "$HOME/.ssh/config"
-fi
+#if [ ! -e "$HOME/.ssh/config" ] || [ "${overwrite}" = "true" ]; then
+#    mkdir -p "$HOME/.ssh"
+#    chmod 700 "$HOME/.ssh"
+#    cp -f .ssh/config "$HOME/.ssh/"
+#    chmod 600 "$HOME/.ssh/config"
+#fi
 
 # Set git username and email
 if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
