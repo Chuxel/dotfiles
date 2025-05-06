@@ -2,25 +2,25 @@
 
 USERNAME="${1:-${USER:-chuck}}"
 
-# Default: Exit on any failure.
+# Standard: Beenden bei jedem Fehler.
 set -e
 
-# Setup STDERR.
+# Richten Sie STDERR ein.
 err() {
     echo "(!) $*" >&2
 }
 
 if [ "$(id -u)" -ne 0 ]; then
-    err 'Script must be run as root. Use sudo, su, or add "USER root" to your Dockerfile before running this script.'
+    err 'Das Skript muss als root ausgeführt werden. Verwenden Sie sudo, su oder fügen Sie "USER root" zu Ihrer Dockerfile hinzu, bevor Sie dieses Skript ausführen.'
     exit 1
 fi
 
-# Install git, other useful stuff
+# Installiere git und andere nützliche Dinge
 apt-get update
 apt-get install -y git curl ca-certificates nano zip unzip zsh
 git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
 
-# Install nvm, node, yarn, node-gyp deps
+# Installiere nvm, node, yarn, node-gyp Abhängigkeiten
 if [ ! -e "/home/${USERNAME}/.nvm" ]; then
     su ${USERNAME} -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash'
 fi
@@ -29,11 +29,11 @@ su ${USERNAME} -c '. "$HOME/.nvm/nvm.sh" && if ! type yarn > /dev/null 2>&1; the
 apt-get update
 apt-get install -y python3-minimal gcc g++ make
 
-# Install Moby
+# Installiere Moby
 if ! type docker > /dev/null 2>&1; then
     bash -c "$(wget -qO- https://github.com/Chuxel/moby-setup/raw/main/install-moby.sh)"
     usermod -aG docker ${USERNAME}
-    # Install nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
+    # Installiere nvidia-docker2 - https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
     . /etc/os-release
     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
     curl -fsSL https://nvidia.github.io/libnvidia-container/$ID$VERSION_ID/libnvidia-container.list | \
@@ -43,7 +43,7 @@ if ! type docker > /dev/null 2>&1; then
     apt-get install -y nvidia-docker2
 fi
 
-# Setup kubectl
+# Richten Sie kubectl ein
 if ! type kubectl > /dev/null 2>&1; then
     curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
     echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
@@ -51,7 +51,7 @@ if ! type kubectl > /dev/null 2>&1; then
     apt-get install -y kubectl
 fi
 
-# Install kind
+# Installiere kind
 if ! type kind > /dev/null 2>&1; then
     curl -sSLo ./kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-$(dpkg --print-architecture)
     chmod +x ./kind

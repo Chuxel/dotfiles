@@ -47,7 +47,13 @@ else
         ca-certificates \
         zip \
         unzip \
-        zsh"
+        zsh \
+        libfuse2 \
+        libssl-dev \
+        python3-dev \
+        python3-pip \
+        python3-setuptools \
+        build-essential"
 
     if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
