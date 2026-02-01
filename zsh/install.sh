@@ -20,7 +20,7 @@ downloadFonts() {
     fi
 
     mkdir -p "$font_folder" "$download_to"
-    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip -o "$download_to/cascadia.zip"
+    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2009.22/CascadiaCode-2009.22.zip -o "$download_to/cascadia.zip"
     unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
     mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
 
@@ -29,25 +29,25 @@ downloadFonts() {
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$font_folder/MesloLGS NF Italic.ttf"
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
 
+    curl -sSL https://github.com/githubnext/monaspace/releases/download/v1.101/monaspace-v1.000.zip -o "$download_to/monaspace.zip"
+    unzip -o "$download_to/monaspace.zip" -d "$download_to/monaspace"
+    rm -rf "$HOME"/.local/share/fonts/Monaspace*
+    cp "$download_to"/monaspace/fonts/otf/* ~/.local/share/fonts
+    cp "$download_to"/monaspace/fonts/variable/* ~/.local/share/fonts
+
     rm -rf "$download_to"
 }
 
 if [ "$IS_MACOS" = "true" ]; then
     downloadFonts
-    brew install jandedobbeleer/oh-my-posh/oh-my-posh
-    cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
-    tee -a "$HOME/.zshrc" > /dev/null \
-<< EOF
-eval "$(oh-my-posh init zsh --config $HOME/.chuxel.omp.json)"
-EOF
-
 else
     # Install curl, tar, git, other dependencies if missing
     packages_needed="\
         curl \
         ca-certificates \
         zip \
-        unzip"
+        unzip \
+        zsh"
 
     if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
@@ -57,37 +57,13 @@ else
     fi
 
     if ! type git > /dev/null 2>&1; then
-        sudo apt-get -y install git
+        sudo apt-get -y git
     fi
 
     # Fonts
     if dpkg -s "fontconfig" > /dev/null 2>&1; then
         downloadFonts
         fc-cache -f -v
-    fi
-
-    # Add .local/bin to PATH and if not already present
-    if ! grep -q $HOME/.local/bin <<< "\$PATH"; then 
-        tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
-
-# Add .local/bin to PATH
-export PATH="$HOME/.local/bin:\$PATH"
-
-EOF
-    fi
-
-    # Oh My Posh
-    curl -s https://ohmyposh.dev/install.sh | bash -s
-    cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
-    if ! grep 'oh-my-posh' ~/.bashrc > /dev/null 2>&1; then
-    tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
-
-# Add Oh My Posh
-eval "$(oh-my-posh init bash --config $HOME/.chuxel.omp.json)"
-
-EOF
     fi
 
     # Add Tilix
@@ -99,23 +75,37 @@ EOF
 if [ \$TILIX_ID ] || [ \$VTE_VERSION ]; then
   source /etc/profile.d/vte*.sh
 fi
-
 EOF
     fi
 
-    # nvm
-    if ! grep 'nvm.sh' ~/.bashrc > /dev/null 2>&1 && ! type nvm  > /dev/null 2>&1; then
-    tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
-
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 fi
 
-EOF
-    fi
+# Oh My Zsh!
+if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 fi
+if [ ! -e "$HOME/.zshrc" ] || [ "${overwrite}" = "true" ]; then
+    rm -f  "$HOME/.zshrc"
+    ln -s "$(pwd)/.zshrc" $HOME
+fi
+
+# powerline 10k
+P110K_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+if [ ! -d "$P110K_DIR" ]; then
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P110K_DIR"
+fi
+if [ ! -e "$HOME/.p10k.zsh" ] || [ "${overwrite}" = "true" ]; then
+    rm -f  "$HOME/.p10k.zsh"
+    ln -s "$(pwd)/.p10k.zsh" $HOME
+fi 
+
+# SSH config file - copy rather than link so machine specific updates can happen
+#if [ ! -e "$HOME/.ssh/config" ] || [ "${overwrite}" = "true" ]; then
+#    mkdir -p "$HOME/.ssh"
+#    chmod 700 "$HOME/.ssh"
+#    cp -f .ssh/config "$HOME/.ssh/"
+#    chmod 600 "$HOME/.ssh/config"
+#fi
 
 # Set git username and email
 if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
@@ -128,7 +118,6 @@ if [ "${CODESPACES}" = "true" ]; then
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
-
 
 # Get rid of annoying git message on pull behaviors
 git config --global pull.rebase false
