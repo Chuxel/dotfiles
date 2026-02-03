@@ -37,7 +37,7 @@ if [ "$IS_MACOS" = "true" ]; then
     brew install jandedobbeleer/oh-my-posh/oh-my-posh
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
     tee -a "$HOME/.zshrc" > /dev/null \
-<< EOF
+<< 'EOF'
 eval "$(oh-my-posh init zsh --config $HOME/.chuxel.omp.json)"
 EOF
 
@@ -67,12 +67,12 @@ else
     fi
 
     # Add .local/bin to PATH and if not already present
-    if ! grep -q $HOME/.local/bin <<< "\$PATH"; then 
+    if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
         tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
+<< 'EOF'
 
 # Add .local/bin to PATH
-export PATH="\$HOME/.local/bin:\$PATH"
+export PATH="$HOME/.local/bin:\$PATH"
 
 EOF
     fi
@@ -82,7 +82,7 @@ EOF
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
     if ! grep 'oh-my-posh' ~/.bashrc > /dev/null 2>&1; then
     tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
+<< 'EOF'
 
 # Add Oh My Posh
 eval "$(oh-my-posh init bash --config $HOME/.chuxel.omp.json)"
@@ -93,10 +93,10 @@ EOF
     # Add Tilix
     if ! grep 'TILIX_ID' ~/.bashrc > /dev/null 2>&1; then 
     tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
+<< 'EOF'
 
 # Add Tilix
-if [ \$TILIX_ID ] || [ \$VTE_VERSION ]; then
+if [ $TILIX_ID ] || [ $VTE_VERSION ]; then
   source /etc/profile.d/vte*.sh
 fi
 
@@ -106,11 +106,11 @@ EOF
     # nvm
     if ! grep 'nvm.sh' ~/.bashrc > /dev/null 2>&1 && ! type nvm  > /dev/null 2>&1; then
     tee -a "$HOME/.bashrc" > /dev/null \
-<< EOF
+<< 'EOF'
 
-export NVM_DIR="\$HOME/.nvm"
-[ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "\$NVM_DIR/bash_completion" ] && . "\$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 EOF
     fi
