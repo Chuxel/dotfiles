@@ -67,12 +67,12 @@ else
     fi
 
     # Add .local/bin to PATH and if not already present
-    if ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
+    if ! echo "$PATH" | grep -q "\$HOME/.local/bin"; then
         tee -a "$HOME/.bashrc" > /dev/null \
 << 'EOF'
 
 # Add .local/bin to PATH
-export PATH="$HOME/.local/bin:\$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 EOF
     fi
