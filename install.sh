@@ -124,6 +124,7 @@ fi
 
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
 if [ "${CODESPACES}" = "true" ]; then
+    mkdir -p /home/$HOME/.ssh
     curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
