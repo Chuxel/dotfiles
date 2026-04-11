@@ -103,6 +103,19 @@ fi
 EOF
     fi
 
+    # Adapt to ghostley
+    if ! grep 'xterm-ghostty' ~/.bashrc > /dev/null 2>&1; then 
+    tee -a "$HOME/.bashrc" > /dev/null \
+<< 'EOF'
+
+# Adapt to Ghostly
+if [ "$TERM" = "xterm-ghostty" ]; then
+  export TERM=xterm-256color
+fi
+
+EOF
+    fi
+
     # nvm
     if ! grep 'nvm.sh' ~/.bashrc > /dev/null 2>&1 && ! type nvm  > /dev/null 2>&1; then
     tee -a "$HOME/.bashrc" > /dev/null \
