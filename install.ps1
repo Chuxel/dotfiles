@@ -360,7 +360,7 @@ function Set-TerminalSettings {
         if (-not $settings.profiles.defaults) {
             $settings.profiles | Add-Member -NotePropertyName 'defaults' -NotePropertyValue ([pscustomobject]@{}) -Force
         }
-        $settings.profiles.defaults | Add-Member -NotePropertyName 'font' -NotePropertyValue ([pscustomobject]@{ face = 'Cascadia Code NF' }) -Force
+        $settings.profiles.defaults | Add-Member -NotePropertyName 'font' -NotePropertyValue ([pscustomobject]@{ face = 'MesloLGS NF' }) -Force
 
         $settings | ConvertTo-Json -Depth 32 | Set-Content -Path $settingsPath -Encoding UTF8
     }
