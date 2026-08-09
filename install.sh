@@ -32,14 +32,141 @@ downloadFonts() {
     rm -rf "$download_to"
 }
 
+installHomebrew() {
+    if ! type brew > /dev/null 2>&1; then
+        # Pick up an existing install that just isn't on the PATH yet
+        for brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+            if [ -x "$brew_path" ]; then
+                eval "$($brew_path shellenv)"
+                break
+            fi
+        done
+    fi
+
+    if ! type brew > /dev/null 2>&1; then
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        for brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+            if [ -x "$brew_path" ]; then
+                eval "$($brew_path shellenv)"
+                break
+            fi
+        done
+    fi
+
+    brew_prefix="$(brew --prefix)"
+    if ! grep -q 'brew shellenv' "$HOME/.zshrc" > /dev/null 2>&1; then
+        tee -a "$HOME/.zshrc" > /dev/null \
+<< EOF
+
+# Add Homebrew
+eval "\$(${brew_prefix}/bin/brew shellenv)"
+
+EOF
+    fi
+}
+
+installNvm() {
+    if [ "$IS_MACOS" = "true" ]; then
+        local rc_file="$HOME/.zshrc"
+    else
+        local rc_file="$HOME/.bashrc"
+    fi
+
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+
+    if [ ! -s "$NVM_DIR/nvm.sh" ] && ! type nvm > /dev/null 2>&1; then
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash
+    fi
+
+    if ! grep 'nvm.sh' "$rc_file" > /dev/null 2>&1; then
+    tee -a "$rc_file" > /dev/null \
+<< 'EOF'
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+EOF
+    fi
+}
+
+installBun() {
+    if [ "$IS_MACOS" = "true" ]; then
+        local rc_file="$HOME/.zshrc"
+    else
+        local rc_file="$HOME/.bashrc"
+    fi
+
+    export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+
+    if [ ! -x "$BUN_INSTALL/bin/bun" ] && ! type bun > /dev/null 2>&1; then
+        curl -fsSL https://bun.sh/install | bash
+    fi
+
+    if ! grep 'BUN_INSTALL' "$rc_file" > /dev/null 2>&1; then
+    tee -a "$rc_file" > /dev/null \
+<< 'EOF'
+
+# bun completions
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+EOF
+    fi
+}
+
+installGhCli() {
+    if type gh > /dev/null 2>&1; then
+        return
+    fi
+
+    if [ "$IS_MACOS" = "true" ]; then
+        brew install gh
+    else
+        sudo mkdir -p -m 755 /etc/apt/keyrings
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+        sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt-get update
+        sudo apt-get -y install gh
+    fi
+}
+
+installCopilotCli() {
+    if type copilot > /dev/null 2>&1; then
+        return
+    fi
+
+    curl -fsSL https://gh.io/copilot-install | bash
+}
+
 if [ "$IS_MACOS" = "true" ]; then
     downloadFonts
+    installHomebrew
     brew install jandedobbeleer/oh-my-posh/oh-my-posh
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
     tee -a "$HOME/.zshrc" > /dev/null \
 << 'EOF'
 eval "$(oh-my-posh init zsh --config $HOME/.chuxel.omp.json)"
 EOF
+
+    # Visual Studio Code
+    if ! grep 'Visual Studio Code' "$HOME/.zshrc" > /dev/null 2>&1; then
+    tee -a "$HOME/.zshrc" > /dev/null \
+<< 'EOF'
+
+# Add Visual Studio Code (code)
+if [[ "$OSTYPE" =~ "darwin"* ]]; then
+    export PATH="/Applications/Visual Studio Code.app/Contents/Resources/app/bin:${PATH}"
+    alias code-insiders='/Applications/Visual\ Studio\ Code\ -\ Insiders.app/Contents/Resources/app/bin/code'
+fi
+
+EOF
+    fi
 
 else
     # Install curl, tar, git, other dependencies if missing
@@ -116,18 +243,12 @@ fi
 EOF
     fi
 
-    # nvm
-    if ! grep 'nvm.sh' ~/.bashrc > /dev/null 2>&1 && ! type nvm  > /dev/null 2>&1; then
-    tee -a "$HOME/.bashrc" > /dev/null \
-<< 'EOF'
-
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
-EOF
-    fi
 fi
+
+installNvm
+installBun
+installGhCli
+installCopilotCli
 
 # Set git username and email
 if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
