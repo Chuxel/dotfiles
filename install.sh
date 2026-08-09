@@ -36,6 +36,32 @@ downloadFonts() {
     rm -rf "$download_to"
 }
 
+installBleSh() {
+    local ble_path="$HOME/.local/share/blesh/ble.sh"
+
+    if [ ! -f "$ble_path" ]; then
+        local download_to
+        download_to="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-blesh.XXXXXX")"
+        curl -fL --progress-bar https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz \
+            -o "$download_to/ble-nightly.tar.xz"
+        tar -xJf "$download_to/ble-nightly.tar.xz" -C "$download_to"
+        bash "$download_to/ble-nightly/ble.sh" --install "$HOME/.local/share"
+        rm -rf "$download_to"
+    fi
+
+    if ! grep -q 'share/blesh/ble.sh' "$HOME/.bashrc" > /dev/null 2>&1; then
+        if grep -q 'oh-my-posh init bash' "$HOME/.bashrc" > /dev/null 2>&1; then
+            sed -i '\|oh-my-posh init bash|i [ -r "$HOME/.local/share/blesh/ble.sh" ] && source -- "$HOME/.local/share/blesh/ble.sh"' "$HOME/.bashrc"
+        else
+            printf '\n%s\n' '[ -r "$HOME/.local/share/blesh/ble.sh" ] && source -- "$HOME/.local/share/blesh/ble.sh"' >> "$HOME/.bashrc"
+        fi
+    fi
+
+    if [ -d "$HOME/.cache/oh-my-posh" ]; then
+        find "$HOME/.cache/oh-my-posh" -maxdepth 1 -type f -name 'init.*.sh' -delete
+    fi
+}
+
 installXcodeCommandLineTools() {
     # Homebrew, git, and compiled dependencies all need the CLT, so do this first
     if xcode-select -p > /dev/null 2>&1; then
@@ -327,7 +353,8 @@ else
         curl \
         ca-certificates \
         zip \
-        unzip"
+        unzip \
+        xz-utils"
 
     if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
@@ -356,6 +383,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 EOF
     fi
+
+    installBleSh
 
     # Oh My Posh
     curl -fL --progress-bar https://ohmyposh.dev/install.sh | bash -s
@@ -419,4 +448,3 @@ if [ "${CODESPACES}" = "true" ]; then
     curl -fL --progress-bar https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
-

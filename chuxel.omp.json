@@ -129,11 +129,10 @@
           "type": "battery"
         }
       ],
-      "type": "prompt"
+      "type": "rprompt"
     },
     {
       "alignment": "left",
-      "newline": true,
       "segments": [
         {
           "background": "#29315A",
