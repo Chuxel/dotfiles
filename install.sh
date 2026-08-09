@@ -6,6 +6,8 @@ rc_file="$HOME/.bashrc"
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
     rc_file="$HOME/.zshrc"
+elif [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL="true"
 fi
 
 downloadFonts() {
@@ -32,6 +34,44 @@ downloadFonts() {
     curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
 
     rm -rf "$download_to"
+}
+
+installXcodeCommandLineTools() {
+    # Homebrew, git, and compiled dependencies all need the CLT, so do this first
+    if xcode-select -p > /dev/null 2>&1; then
+        return
+    fi
+
+    echo "Xcode Command Line Tools not found. Installing..."
+
+    # This placeholder makes the tools show up as a softwareupdate item
+    local progress_file="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
+    touch "$progress_file"
+
+    local clt_package
+    clt_package="$(softwareupdate -l 2>/dev/null \
+        | grep -B 1 -E 'Command Line Tools' \
+        | awk -F'*' '/^ *\*/ {print $2}' \
+        | sed -e 's/^ *Label: *//' -e 's/^ *//' \
+        | tail -n 1)"
+
+    if [ -n "$clt_package" ]; then
+        softwareupdate -i "$clt_package" --verbose
+    else
+        # Fall back to the GUI installer and wait for the user to finish it
+        xcode-select --install > /dev/null 2>&1
+        echo "Complete the Command Line Tools installer dialog to continue..."
+        while ! xcode-select -p > /dev/null 2>&1; do
+            sleep 10
+        done
+    fi
+
+    rm -f "$progress_file"
+
+    if ! xcode-select -p > /dev/null 2>&1; then
+        echo "(!) Xcode Command Line Tools install failed. Run 'xcode-select --install' manually, then re-run this script." >&2
+        exit 1
+    fi
 }
 
 installHomebrew() {
@@ -134,7 +174,130 @@ installCopilotCli() {
     curl -fsSL https://gh.io/copilot-install | bash
 }
 
+canUseSecretService() {
+    # GCM's secretservice store needs libsecret plus a D-Bus session with a
+    # Secret Service provider (gnome-keyring, kwallet, keepassxc, ...) running
+    if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+        return 1
+    fi
+
+    if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+        return 1
+    fi
+
+    if ! (ldconfig -p 2>/dev/null | grep -q 'libsecret-1\.so\.0'); then
+        return 1
+    fi
+
+    # Confirm something is actually serving org.freedesktop.secrets on the bus
+    if type gdbus > /dev/null 2>&1; then
+        gdbus call --session \
+            --dest org.freedesktop.DBus \
+            --object-path /org/freedesktop/DBus \
+            --method org.freedesktop.DBus.NameHasOwner org.freedesktop.secrets 2>/dev/null \
+            | grep -q 'true'
+        return $?
+    fi
+
+    if type dbus-send > /dev/null 2>&1; then
+        dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+            /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
+            string:org.freedesktop.secrets 2>/dev/null \
+            | grep -q 'boolean true'
+        return $?
+    fi
+
+    # No way to probe the bus, so fall back to something that always works
+    return 1
+}
+
+installGitCredentialManager() {
+    # Codespaces already wires up credentials via the GITHUB_TOKEN / gh auth
+    if [ "${CODESPACES}" = "true" ]; then
+        return
+    fi
+
+    # In WSL, reuse the GCM installed on the Windows host so credentials are shared
+    if [ "$IS_WSL" = "true" ]; then
+        local windows_gcm
+        for candidate in \
+            "/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe" \
+            "/mnt/c/Program Files (x86)/Git Credential Manager/git-credential-manager.exe" \
+            "/mnt/c/Program Files/Git Credential Manager/git-credential-manager.exe" \
+            "/mnt/c/Program Files/Git/mingw64/libexec/git-core/git-credential-manager.exe" \
+            "/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager-core.exe"
+        do
+            if [ -x "$candidate" ]; then
+                windows_gcm="$candidate"
+                break
+            fi
+        done
+
+        if [ -z "$windows_gcm" ]; then
+            echo "(!) Could not find Git Credential Manager on the Windows host. Install Git for Windows or GCM, then re-run." >&2
+            return
+        fi
+
+        # git needs the spaces in the path escaped
+        git config --global credential.helper "$(echo "$windows_gcm" | sed 's/ /\\ /g')"
+
+        # Let the Windows host own the credential store; WSL just calls into it
+        git config --global --unset credential.credentialStore > /dev/null 2>&1
+        return
+    fi
+
+    if ! type git-credential-manager > /dev/null 2>&1; then
+        if [ "$IS_MACOS" = "true" ]; then
+            brew install --cask git-credential-manager
+
+            # The cask's pkg drops the binary here, which may not be on PATH yet
+            for gcm_path in /usr/local/share/gcm-core /usr/local/bin /opt/homebrew/bin; do
+                if [ -x "$gcm_path/git-credential-manager" ]; then
+                    PATH="$gcm_path:$PATH"
+                    export PATH
+                    break
+                fi
+            done
+        else
+            local gcm_version="2.9.1"
+            local gcm_arch="x64"
+            if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+                gcm_arch="arm64"
+            fi
+
+            local gcm_deb="/tmp/gcm-linux-${gcm_arch}-${gcm_version}.deb"
+            curl -sSL "https://github.com/git-ecosystem/git-credential-manager/releases/download/v${gcm_version}/gcm-linux-${gcm_arch}-${gcm_version}.deb" -o "$gcm_deb"
+            sudo dpkg -i "$gcm_deb" || sudo apt-get -y -f install
+            rm -f "$gcm_deb"
+        fi
+    fi
+
+    if ! type git-credential-manager > /dev/null 2>&1; then
+        echo "(!) Git Credential Manager install could not be verified - skipping credential configuration." >&2
+        return
+    fi
+
+    git-credential-manager configure
+
+    if [ "$IS_MACOS" = "true" ]; then
+        git config --global credential.credentialStore keychain
+    elif canUseSecretService; then
+        git config --global credential.credentialStore secretservice
+    else
+        # No usable keyring (headless, SSH, container), so persist to disk instead
+        local plaintext_store="$HOME/.gcm/store"
+        mkdir -p "$plaintext_store"
+        chmod 700 "$HOME/.gcm" "$plaintext_store"
+
+        git config --global credential.credentialStore plaintext
+        git config --global credential.plaintextStorePath "$plaintext_store"
+
+        echo "(!) No keyring available - GCM credentials will be stored unencrypted in $plaintext_store" >&2
+    fi
+}
+
 if [ "$IS_MACOS" = "true" ]; then
+    installXcodeCommandLineTools
     downloadFonts
     installHomebrew
     brew install jandedobbeleer/oh-my-posh/oh-my-posh
@@ -239,6 +402,7 @@ installNvm
 installBun
 installGhCli
 installCopilotCli
+installGitCredentialManager
 
 # Set git username and email
 if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
