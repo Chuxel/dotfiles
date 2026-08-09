@@ -153,7 +153,7 @@
           "foreground": "#7FD5EA",
           "leading_diamond": "\ue0b6",
           "style": "diamond",
-          "template": "\u276f",
+          "template": "<#FFFFFF>{{ if .WSL }}\uf17c{{ else if eq .OS \"windows\" }}\ue62a{{ else if eq .OS \"darwin\" }}\uf179{{ else if eq .OS \"linux\" }}\uf17c{{ else }}\uf108{{ end }}</> \u276f",
           "trailing_diamond": "\ue0b4",
           "type": "text"
         }
