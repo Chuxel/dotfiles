@@ -26,6 +26,19 @@ function Test-Command {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Test-GitCredentialManager {
+    if (Test-Command 'git-credential-manager') {
+        return $true
+    }
+
+    if (Test-Command 'git') {
+        & git credential-manager --version *> $null
+        return $LASTEXITCODE -eq 0
+    }
+
+    return $false
+}
+
 function Update-SessionPath {
     $machine = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
     $user = [System.Environment]::GetEnvironmentVariable('Path', 'User')
@@ -52,23 +65,31 @@ function Add-ToUserPath {
 function Add-ToProfile {
     param(
         [Parameter(Mandatory)][string]$Marker,
-        [Parameter(Mandatory)][string]$Content
+        [Parameter(Mandatory)][string]$Content,
+        [string]$ProfilePath = $PROFILE.CurrentUserAllHosts
     )
 
-    $profilePath = $PROFILE.CurrentUserAllHosts
-    $profileDir = Split-Path -Parent $profilePath
+    $profileDir = Split-Path -Parent $ProfilePath
     if (-not (Test-Path $profileDir)) {
         New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
     }
-    if (-not (Test-Path $profilePath)) {
-        New-Item -ItemType File -Path $profilePath -Force | Out-Null
+    if (-not (Test-Path $ProfilePath)) {
+        New-Item -ItemType File -Path $ProfilePath -Force | Out-Null
     }
 
-    if (Select-String -Path $profilePath -Pattern ([regex]::Escape($Marker)) -Quiet) {
+    if (Select-String -Path $ProfilePath -Pattern ([regex]::Escape($Marker)) -Quiet) {
         return
     }
 
-    Add-Content -Path $profilePath -Value "`r`n$Content`r`n"
+    Add-Content -Path $ProfilePath -Value "`r`n$Content`r`n"
+}
+
+function Get-PowerShellProfilePath {
+    if (Test-Command 'pwsh') {
+        return (& pwsh -NoProfile -Command '$PROFILE.CurrentUserAllHosts').Trim()
+    }
+
+    return $PROFILE.CurrentUserAllHosts
 }
 
 function Install-WingetPackage {
@@ -92,6 +113,25 @@ function Install-WingetPackage {
 }
 
 function Install-Fonts {
+    $registryPath = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+    $installedFontNames = @()
+    if (Test-Path $registryPath) {
+        $installedFontNames = @((Get-ItemProperty -Path $registryPath).PSObject.Properties.Name)
+    }
+
+    $cascadiaInstalled = $installedFontNames -match '^Cascadia.*\(TrueType\)$'
+    $requiredMesloFonts = @(
+        'MesloLGS NF Regular (TrueType)'
+        'MesloLGS NF Bold (TrueType)'
+        'MesloLGS NF Italic (TrueType)'
+        'MesloLGS NF Bold Italic (TrueType)'
+    )
+
+    if ($cascadiaInstalled -and ($requiredMesloFonts | Where-Object { $_ -notin $installedFontNames }).Count -eq 0) {
+        Write-Host 'Fonts are already installed.'
+        return
+    }
+
     $downloadTo = Join-Path $env:TEMP 'dotfiles-fonts'
     New-Item -ItemType Directory -Path $downloadTo -Force | Out-Null
 
@@ -100,13 +140,16 @@ function Install-Fonts {
     New-Item -ItemType Directory -Path $fontFolder -Force | Out-Null
 
     try {
-        $cascadiaZip = Join-Path $downloadTo 'cascadia.zip'
-        Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip' `
-            -OutFile $cascadiaZip
-        Expand-Archive -Path $cascadiaZip -DestinationPath (Join-Path $downloadTo 'cascadia') -Force
+        $ttfFiles = @()
+        if (-not $cascadiaInstalled) {
+            $cascadiaZip = Join-Path $downloadTo 'cascadia.zip'
+            Invoke-WebRequest -UseBasicParsing `
+                -Uri 'https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip' `
+                -OutFile $cascadiaZip
+            Expand-Archive -Path $cascadiaZip -DestinationPath (Join-Path $downloadTo 'cascadia') -Force
 
-        $ttfFiles = @(Get-ChildItem -Path (Join-Path $downloadTo 'cascadia\ttf') -Filter '*.ttf' -File)
+            $ttfFiles += Get-ChildItem -Path (Join-Path $downloadTo 'cascadia\ttf') -Filter '*.ttf' -File
+        }
 
         $mesloFonts = @{
             'MesloLGS NF Regular.ttf'     = 'MesloLGS%20NF%20Regular.ttf'
@@ -122,7 +165,6 @@ function Install-Fonts {
             $ttfFiles += Get-Item $target
         }
 
-        $registryPath = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
         if (-not (Test-Path $registryPath)) {
             New-Item -Path $registryPath -Force | Out-Null
         }
@@ -143,7 +185,7 @@ function Install-OhMyPosh {
 
     Copy-Item -Path (Join-Path $PSScriptRoot 'chuxel.omp.json') -Destination (Join-Path $HOME '.chuxel.omp.json') -Force
 
-    Add-ToProfile -Marker 'oh-my-posh init' -Content @'
+    Add-ToProfile -ProfilePath (Get-PowerShellProfilePath) -Marker 'oh-my-posh init' -Content @'
 # Add Oh My Posh
 if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
     oh-my-posh init pwsh --config "$HOME/.chuxel.omp.json" | Invoke-Expression
@@ -154,7 +196,7 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
 function Install-Fnm {
     Install-WingetPackage -Id 'Schniz.fnm' -CommandName 'fnm'
 
-    Add-ToProfile -Marker 'fnm env' -Content @'
+    Add-ToProfile -ProfilePath (Get-PowerShellProfilePath) -Marker 'fnm env' -Content @'
 # Add fnm (Node.js version manager) with auto-switch on cd
 if (Get-Command fnm -ErrorAction SilentlyContinue) {
     fnm env --use-on-cd --shell power-shell | Out-String | Invoke-Expression
@@ -204,13 +246,13 @@ function Install-GitCredentialManager {
         return
     }
 
-    if (-not (Test-Command 'git-credential-manager')) {
+    if (-not (Test-GitCredentialManager)) {
         # Git for Windows bundles GCM, but install the standalone package if it is missing
-        Install-WingetPackage -Id 'Git.GCM' -CommandName 'git-credential-manager'
+        Install-WingetPackage -Id 'Git.GCM'
     }
 
-    if (Test-Command 'git-credential-manager') {
-        git-credential-manager configure
+    if (Test-GitCredentialManager) {
+        git credential-manager configure
     }
     else {
         git config --global credential.helper manager
