@@ -141,7 +141,7 @@
           "leading_diamond": "\ue0b6",
           "options": {
             "style": "austin",
-            "threshold": 150
+            "threshold": 1
           },
           "style": "diamond",
           "template": "{{ .FormattedMs }}",
