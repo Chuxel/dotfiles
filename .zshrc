@@ -1,7 +1,3 @@
-# Tilix setup
-if [ $TILIX_ID ] || [ $VTE_VERSION ]; then
-  source /etc/profile.d/vte*.sh
-fi
 # User configuration
 
 # export MANPATH="/usr/local/man:$MANPATH"

@@ -2,8 +2,10 @@
 cd "$(dirname $0)"
 overwrite="${1:-true}"
 
+rc_file="$HOME/.bashrc"
 if echo "$OSTYPE" | grep -E '^darwin'; then
     IS_MACOS="true"
+    rc_file="$HOME/.zshrc"
 fi
 
 downloadFonts() {
@@ -66,12 +68,6 @@ EOF
 }
 
 installNvm() {
-    if [ "$IS_MACOS" = "true" ]; then
-        local rc_file="$HOME/.zshrc"
-    else
-        local rc_file="$HOME/.bashrc"
-    fi
-
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
     if [ ! -s "$NVM_DIR/nvm.sh" ] && ! type nvm > /dev/null 2>&1; then
@@ -91,12 +87,6 @@ EOF
 }
 
 installBun() {
-    if [ "$IS_MACOS" = "true" ]; then
-        local rc_file="$HOME/.zshrc"
-    else
-        local rc_file="$HOME/.bashrc"
-    fi
-
     export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 
     if [ ! -x "$BUN_INSTALL/bin/bun" ] && ! type bun > /dev/null 2>&1; then
@@ -230,9 +220,11 @@ fi
 EOF
     fi
 
-    # Adapt to ghostley
-    if ! grep 'xterm-ghostty' ~/.bashrc > /dev/null 2>&1; then 
-    tee -a "$HOME/.bashrc" > /dev/null \
+fi
+
+# Adapt to ghostley
+if ! grep 'xterm-ghostty' "$rc_file" > /dev/null 2>&1; then 
+    tee -a "$rc_file" > /dev/null \
 << 'EOF'
 
 # Adapt to Ghostly
@@ -241,8 +233,6 @@ if [ "$TERM" = "xterm-ghostty" ]; then
 fi
 
 EOF
-    fi
-
 fi
 
 installNvm
@@ -256,6 +246,9 @@ if [ ! -e "$HOME/.gitconfig" ] || [ "${overwrite}" = "true" ]; then
     git config --global user.name 'Chuck Lantz'
 fi
 
+# Get rid of annoying git message on pull behaviors
+git config --global pull.rebase false
+
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
 if [ "${CODESPACES}" = "true" ]; then
     mkdir -p /home/$HOME/.ssh
@@ -263,6 +256,3 @@ if [ "${CODESPACES}" = "true" ]; then
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
 
-
-# Get rid of annoying git message on pull behaviors
-git config --global pull.rebase false
