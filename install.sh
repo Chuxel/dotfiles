@@ -24,14 +24,14 @@ downloadFonts() {
     fi
 
     mkdir -p "$font_folder" "$download_to"
-    curl -sSL https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip -o "$download_to/cascadia.zip"
+    curl -fL --progress-bar https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip -o "$download_to/cascadia.zip"
     unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
     mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
 
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf -o "$font_folder/MesloLGS NF Regular.ttf" 
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf -o "$font_folder/MesloLGS NF Bold.ttf"
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$font_folder/MesloLGS NF Italic.ttf"
-    curl -sSL https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
+    curl -fL --progress-bar https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf -o "$font_folder/MesloLGS NF Regular.ttf"
+    curl -fL --progress-bar https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf -o "$font_folder/MesloLGS NF Bold.ttf"
+    curl -fL --progress-bar https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf -o "$font_folder/MesloLGS NF Italic.ttf"
+    curl -fL --progress-bar https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf -o "$font_folder/MesloLGS NF Bold Italic.ttf"
 
     rm -rf "$download_to"
 }
@@ -86,7 +86,7 @@ installHomebrew() {
     fi
 
     if ! type brew > /dev/null 2>&1; then
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fL --progress-bar https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         for brew_path in /opt/homebrew/bin/brew /usr/local/bin/brew; do
             if [ -x "$brew_path" ]; then
                 eval "$($brew_path shellenv)"
@@ -111,7 +111,7 @@ installNvm() {
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
     if [ ! -s "$NVM_DIR/nvm.sh" ] && ! type nvm > /dev/null 2>&1; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash
+        curl -fL --progress-bar https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash
     fi
 
     if ! grep 'nvm.sh' "$rc_file" > /dev/null 2>&1; then
@@ -130,7 +130,7 @@ installBun() {
     export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 
     if [ ! -x "$BUN_INSTALL/bin/bun" ] && ! type bun > /dev/null 2>&1; then
-        curl -fsSL https://bun.sh/install | bash
+        curl -fL --progress-bar https://bun.sh/install | bash
     fi
 
     if ! grep 'BUN_INSTALL' "$rc_file" > /dev/null 2>&1; then
@@ -157,7 +157,7 @@ installGhCli() {
         brew install gh
     else
         sudo mkdir -p -m 755 /etc/apt/keyrings
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+        curl -fL --progress-bar https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
         sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
             | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
@@ -171,7 +171,7 @@ installCopilotCli() {
         return
     fi
 
-    curl -fsSL https://gh.io/copilot-install | bash
+    curl -fL --progress-bar https://gh.io/copilot-install | bash
 }
 
 canUseSecretService() {
@@ -266,7 +266,7 @@ installGitCredentialManager() {
             fi
 
             local gcm_deb="/tmp/gcm-linux-${gcm_arch}-${gcm_version}.deb"
-            curl -sSL "https://github.com/git-ecosystem/git-credential-manager/releases/download/v${gcm_version}/gcm-linux-${gcm_arch}-${gcm_version}.deb" -o "$gcm_deb"
+            curl -fL --progress-bar "https://github.com/git-ecosystem/git-credential-manager/releases/download/v${gcm_version}/gcm-linux-${gcm_arch}-${gcm_version}.deb" -o "$gcm_deb"
             sudo dpkg -i "$gcm_deb" || sudo apt-get -y -f install
             rm -f "$gcm_deb"
         fi
@@ -358,7 +358,7 @@ EOF
     fi
 
     # Oh My Posh
-    curl -s https://ohmyposh.dev/install.sh | bash -s
+    curl -fL --progress-bar https://ohmyposh.dev/install.sh | bash -s
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
     if ! grep 'oh-my-posh' ~/.bashrc > /dev/null 2>&1; then
     tee -a "$HOME/.bashrc" > /dev/null \
@@ -416,7 +416,7 @@ git config --global pull.rebase false
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
 if [ "${CODESPACES}" = "true" ]; then
     mkdir -p /home/$HOME/.ssh
-    curl -sSL https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
+    curl -fL --progress-bar https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
 
