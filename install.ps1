@@ -84,12 +84,30 @@ function Add-ToProfile {
     Add-Content -Path $ProfilePath -Value "`r`n$Content`r`n"
 }
 
-function Get-PowerShellProfilePath {
+function Get-PowerShellProfilePaths {
     if (Test-Command 'pwsh') {
-        return (& pwsh -NoProfile -Command '$PROFILE.CurrentUserAllHosts').Trim()
+        return @(& pwsh -NoProfile -Command '$PROFILE.CurrentUserAllHosts; $PROFILE.CurrentUserCurrentHost') |
+            ForEach-Object { $_.Trim() } |
+            Select-Object -Unique
     }
 
-    return $PROFILE.CurrentUserAllHosts
+    return @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost) | Select-Object -Unique
+}
+
+function Repair-OhMyPoshProfile {
+    param([Parameter(Mandatory)][string]$ProfilePath)
+
+    if (-not (Test-Path $ProfilePath)) {
+        return
+    }
+
+    $content = [System.IO.File]::ReadAllText($ProfilePath)
+    $legacyConfigPattern = '(?im)(oh-my-posh\s+init\s+pwsh\s+--config\s+)["'']?\$env:POSH_THEMES_PATH[/\\][^\s"'']+["'']?'
+    $updatedContent = [regex]::Replace($content, $legacyConfigPattern, '$1"$HOME/.chuxel.omp.json"')
+
+    if ($updatedContent -ne $content) {
+        [System.IO.File]::WriteAllText($ProfilePath, $updatedContent)
+    }
 }
 
 function Install-WingetPackage {
@@ -185,7 +203,12 @@ function Install-OhMyPosh {
 
     Copy-Item -Path (Join-Path $PSScriptRoot 'chuxel.omp.json') -Destination (Join-Path $HOME '.chuxel.omp.json') -Force
 
-    Add-ToProfile -ProfilePath (Get-PowerShellProfilePath) -Marker 'oh-my-posh init' -Content @'
+    $profilePaths = @(Get-PowerShellProfilePaths)
+    foreach ($profilePath in $profilePaths) {
+        Repair-OhMyPoshProfile -ProfilePath $profilePath
+    }
+
+    Add-ToProfile -ProfilePath $profilePaths[0] -Marker 'oh-my-posh init' -Content @'
 # Add Oh My Posh
 if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
     oh-my-posh init pwsh --config "$HOME/.chuxel.omp.json" | Invoke-Expression
