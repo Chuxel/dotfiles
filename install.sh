@@ -25,6 +25,7 @@ downloadFonts() {
 
     mkdir -p "$font_folder" "$download_to"
     curl -fL --progress-bar https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip -o "$download_to/cascadia.zip"
+    rm -rf "$download_to/cascadia"
     unzip -o "$download_to/cascadia.zip" -d "$download_to/cascadia"
     mv -f "$download_to/cascadia/ttf/"*.ttf "$font_folder/"
 
@@ -430,6 +431,9 @@ fi
 installNvm
 installBun
 installGhCli
+if [ -r "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
 installCopilotCli
 installGitCredentialManager
 
