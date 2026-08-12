@@ -219,7 +219,8 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) {
 function Install-Fnm {
     Install-WingetPackage -Id 'Schniz.fnm' -CommandName 'fnm'
 
-    Add-ToProfile -ProfilePath (Get-PowerShellProfilePath) -Marker 'fnm env' -Content @'
+    $profilePaths = @(Get-PowerShellProfilePaths)
+    Add-ToProfile -ProfilePath $profilePaths[0] -Marker 'fnm env' -Content @'
 # Add fnm (Node.js version manager) with auto-switch on cd
 if (Get-Command fnm -ErrorAction SilentlyContinue) {
     fnm env --use-on-cd --shell power-shell | Out-String | Invoke-Expression
@@ -227,11 +228,9 @@ if (Get-Command fnm -ErrorAction SilentlyContinue) {
 '@
 
     if (Test-Command 'fnm') {
-        # Install and activate the latest LTS if no Node version is managed yet
-        if (-not (fnm list | Select-String -Pattern 'v\d' -Quiet)) {
-            fnm install --lts
-        }
-        fnm default lts-latest
+        fnm install --lts
+        fnm use --install-if-missing 'lts/*'
+        fnm default (fnm current)
     }
 }
 
