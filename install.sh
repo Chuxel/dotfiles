@@ -10,6 +10,69 @@ elif [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null; 
     IS_WSL="true"
 fi
 
+configureWslInterop() {
+    if [ "$IS_WSL" != "true" ]; then
+        return
+    fi
+
+    local wsl_config
+    wsl_config="$(mktemp "${TMPDIR:-/tmp}/wsl.conf.XXXXXX")"
+
+    if sudo test -f /etc/wsl.conf; then
+        sudo cat /etc/wsl.conf
+    fi | awk '
+        function is_section(line) {
+            return line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/
+        }
+
+        function is_interop(line, normalized) {
+            normalized = tolower(line)
+            gsub(/[[:space:]]/, "", normalized)
+            return normalized == "[interop]"
+        }
+
+        function is_append_windows_path(line, normalized) {
+            normalized = tolower(line)
+            return normalized ~ /^[[:space:]]*appendwindowspath[[:space:]]*=/
+        }
+
+        is_section($0) {
+            if (in_interop && !has_setting) {
+                print "appendWindowsPath = false"
+            }
+
+            in_interop = is_interop($0)
+            if (in_interop) {
+                found_interop = 1
+                has_setting = 0
+            }
+        }
+
+        in_interop && is_append_windows_path($0) {
+            print "appendWindowsPath = false"
+            has_setting = 1
+            next
+        }
+
+        { print }
+
+        END {
+            if (in_interop && !has_setting) {
+                print "appendWindowsPath = false"
+            } else if (!found_interop) {
+                if (NR > 0) {
+                    print ""
+                }
+                print "[interop]"
+                print "appendWindowsPath = false"
+            }
+        }
+    ' > "$wsl_config"
+
+    sudo tee /etc/wsl.conf < "$wsl_config" > /dev/null
+    rm -f "$wsl_config"
+}
+
 downloadFonts() {
     if [ -z $TMPDIR ]; then
         TMPDIR=/tmp
@@ -349,6 +412,8 @@ EOF
     fi
 
 else
+    configureWslInterop
+
     # Install curl, tar, git, other dependencies if missing
     packages_needed="\
         curl \
