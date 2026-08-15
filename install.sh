@@ -1,12 +1,17 @@
-#!/bin/sh
-cd "$(dirname $0)"
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
 overwrite="${1:-true}"
 
 rc_file="$HOME/.bashrc"
-if echo "$OSTYPE" | grep -E '^darwin'; then
+IS_MACOS="false"
+IS_WSL="false"
+
+if [ "$(uname -s)" = "Darwin" ]; then
     IS_MACOS="true"
     rc_file="$HOME/.zshrc"
-elif [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+elif [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
     IS_WSL="true"
 fi
 
@@ -18,8 +23,8 @@ configureWslInterop() {
     local wsl_config
     wsl_config="$(mktemp "${TMPDIR:-/tmp}/wsl.conf.XXXXXX")"
 
-    if sudo test -f /etc/wsl.conf; then
-        sudo cat /etc/wsl.conf
+    if [ -f /etc/wsl.conf ]; then
+        cat /etc/wsl.conf
     fi | awk '
         function is_section(line) {
             return line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/
@@ -74,11 +79,7 @@ configureWslInterop() {
 }
 
 downloadFonts() {
-    if [ -z $TMPDIR ]; then
-        TMPDIR=/tmp
-    fi
-
-    local download_to="$TMPDIR/dotfiles-fonts"
+    local download_to="${TMPDIR:-/tmp}/dotfiles-fonts"
 
     if [ "$IS_MACOS" = "true" ]; then
         local font_folder="$HOME/Library/Fonts"
@@ -143,7 +144,7 @@ installXcodeCommandLineTools() {
         | grep -B 1 -E 'Command Line Tools' \
         | awk -F'*' '/^ *\*/ {print $2}' \
         | sed -e 's/^ *Label: *//' -e 's/^ *//' \
-        | tail -n 1)"
+        | tail -n 1 || true)"
 
     if [ -n "$clt_package" ]; then
         softwareupdate -i "$clt_package" --verbose
@@ -267,11 +268,11 @@ installCopilotCli() {
 canUseSecretService() {
     # GCM's secretservice store needs libsecret plus a D-Bus session with a
     # Secret Service provider (gnome-keyring, kwallet, keepassxc, ...) running
-    if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
         return 1
     fi
 
-    if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+    if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
         return 1
     fi
 
@@ -303,7 +304,7 @@ canUseSecretService() {
 
 installGitCredentialManager() {
     # Codespaces already wires up credentials via the GITHUB_TOKEN / gh auth
-    if [ "${CODESPACES}" = "true" ]; then
+    if [ "${CODESPACES:-}" = "true" ]; then
         return
     fi
 
@@ -332,7 +333,7 @@ installGitCredentialManager() {
         git config --global credential.helper "$(echo "$windows_gcm" | sed 's/ /\\ /g')"
 
         # Let the Windows host own the credential store; WSL just calls into it
-        git config --global --unset credential.credentialStore > /dev/null 2>&1
+        git config --global --unset credential.credentialStore > /dev/null 2>&1 || true
         return
     fi
 
@@ -415,23 +416,37 @@ else
     configureWslInterop
 
     # Install curl, tar, git, other dependencies if missing
-    packages_needed="\
-        curl \
-        ca-certificates \
-        zip \
-        unzip \
-        xz-utils"
+    packages_needed=(
+        curl
+        ca-certificates
+        zip
+        unzip
+        xz-utils
+    )
+    missing_packages=()
+    for package in "${packages_needed[@]}"; do
+        if ! dpkg -s "$package" > /dev/null 2>&1; then
+            missing_packages+=("$package")
+        fi
+    done
 
-    if ! dpkg -s ${packages_needed} > /dev/null 2>&1; then
+    if [ "${#missing_packages[@]}" -gt 0 ]; then
         if [ ! -d "/var/lib/apt/lists" ] || [ "$(ls /var/lib/apt/lists/ | wc -l)" = "0" ]; then
             sudo apt-get update
         fi
-        sudo apt-get -y install ${packages_needed}
+        sudo apt-get -y install "${missing_packages[@]}"
     fi
 
     if ! type git > /dev/null 2>&1; then
         sudo apt-get -y install git
     fi
+
+    for command_name in curl tar unzip; do
+        if ! command -v "$command_name" > /dev/null 2>&1; then
+            echo "(!) Required command '$command_name' is unavailable after dependency installation." >&2
+            exit 1
+        fi
+    done
 
     # Fonts
     if dpkg -s "fontconfig" > /dev/null 2>&1; then
@@ -440,7 +455,7 @@ else
     fi
 
     # Add .local/bin to PATH and if not already present
-    if ! echo "$PATH" | grep -q "\$HOME/.local/bin"; then
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
         tee -a "$HOME/.bashrc" > /dev/null \
 << 'EOF'
 
@@ -449,6 +464,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 EOF
     fi
+    export PATH="$HOME/.local/bin:$PATH"
 
     installBleSh
 
@@ -496,9 +512,6 @@ fi
 installNvm
 installBun
 installGhCli
-if [ -r "$HOME/.bashrc" ]; then
-    . "$HOME/.bashrc"
-fi
 installCopilotCli
 installGitCredentialManager
 
@@ -512,8 +525,8 @@ fi
 git config --global pull.rebase false
 
 # In codespaces, use GitHub public keys as authorized keys to my codespaces (assuming sshd has been set up in them)
-if [ "${CODESPACES}" = "true" ]; then
-    mkdir -p /home/$HOME/.ssh
+if [ "${CODESPACES:-}" = "true" ]; then
+    mkdir -p "$HOME/.ssh"
     curl -fL --progress-bar https://github.com/chuxel.keys -o "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
