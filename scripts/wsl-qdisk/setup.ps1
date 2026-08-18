@@ -137,9 +137,10 @@ function Invoke-UbuntuRoot {
 
     $decodedArguments = @($CommandArguments | ForEach-Object {
         $encodedArgument = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_))
-        "`"$(printf %s $encodedArgument | base64 -d)`""
+        '"$(printf %s {0} | base64 -d)"' -f $encodedArgument
     })
     $wrapper = "set -- $($decodedArguments -join ' ')`n$Command"
+    $wrapper = $wrapper.Replace("`r`n", "`n").Replace("`r", "`n")
     $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($wrapper))
 
     # The bootstrap contains no spaces or quotes, so Windows PowerShell 5.1 cannot
@@ -524,7 +525,7 @@ fi
         return
     }
 
-    $signatures = @(Invoke-UbuntuRoot -Command 'wipefs -n --noheadings -o TYPE -- "$1"' -CommandArguments @($device))
+    $signatures = @(Invoke-UbuntuRoot -Command 'wipefs --no-act --noheadings --output TYPE -- "$1"' -CommandArguments @($device))
     $layout = @(Invoke-UbuntuRoot -Command 'lsblk -nrpo NAME,TYPE,FSTYPE,LABEL "$1"' -CommandArguments @($device))
     $hasFilesystem = $layout | Where-Object { $_ -match '\s(ext2|ext3|ext4|xfs|btrfs|ntfs|vfat|swap|crypto_LUKS)\s' }
     if ($signatures.Count -gt 0 -or $hasFilesystem) {

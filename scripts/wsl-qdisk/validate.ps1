@@ -27,9 +27,10 @@ foreach ($file in $powerShellFiles) {
 }
 
 $helper = Join-Path $PSScriptRoot 'mount-qdisk.sh'
+$helperContent = [IO.File]::ReadAllText($helper).Replace("`r`n", "`n").Replace("`r", "`n")
 $shell = Get-Command sh -ErrorAction SilentlyContinue
 if ($shell) {
-    & $shell.Source -n $helper
+    $helperContent | & $shell.Source -n
     if ($LASTEXITCODE -ne 0) {
         $failed = $true
     }
@@ -37,15 +38,9 @@ if ($shell) {
 else {
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
     if ($wsl) {
-        $linuxPath = (& $wsl.Source --exec wslpath -a -u $helper 2>$null | Select-Object -First 1)
-        if ($LASTEXITCODE -eq 0 -and $linuxPath) {
-            & $wsl.Source --exec sh -n $linuxPath
-            if ($LASTEXITCODE -ne 0) {
-                $failed = $true
-            }
-        }
-        else {
-            Write-Warning 'Could not translate the helper path for WSL; shell syntax was not checked.'
+        $helperContent | & $wsl.Source --exec sh -n
+        if ($LASTEXITCODE -ne 0) {
+            $failed = $true
         }
     }
     else {

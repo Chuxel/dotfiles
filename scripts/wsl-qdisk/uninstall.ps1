@@ -96,9 +96,10 @@ function Invoke-UbuntuRoot {
 
     $decodedArguments = @($CommandArguments | ForEach-Object {
         $encodedArgument = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_))
-        "`"$(printf %s $encodedArgument | base64 -d)`""
+        '"$(printf %s {0} | base64 -d)"' -f $encodedArgument
     })
     $wrapper = "set -- $($decodedArguments -join ' ')`n$Command"
+    $wrapper = $wrapper.Replace("`r`n", "`n").Replace("`r", "`n")
     $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($wrapper))
     $bootstrap = 'echo${IFS}' + $payload + '|base64${IFS}-d|/bin/sh'
     $arguments = @('-d', $DistroName, '-u', 'root', '--exec', '/bin/sh', '-c', $bootstrap)
