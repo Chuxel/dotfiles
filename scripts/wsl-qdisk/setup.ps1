@@ -13,7 +13,10 @@ param(
     [string]$DistroName = 'Ubuntu',
 
     [ValidateNotNullOrEmpty()]
-    [string]$VhdxPath = 'Q:\WSL\Ubuntu\qdisk.vhdx',
+    [string]$VhdxDirectory = 'Q:\WSL\Ubuntu',
+
+    [ValidateNotNullOrEmpty()]
+    [string]$VhdxPath,
 
     [ValidateRange(1, 65536)]
     [int]$SizeGB = 500,
@@ -43,6 +46,18 @@ $script:BootSectionMarker = '# wsl-qdisk: added boot section'
 $script:TaskDescription = 'Managed by chuxel/dotfiles scripts/wsl-qdisk.'
 $script:WslExe = Join-Path $env:SystemRoot 'System32\wsl.exe'
 $script:LastWslExitCode = 0
+$vhdxPathWasSpecified = $PSBoundParameters.ContainsKey('VhdxPath')
+$vhdxDirectoryWasSpecified = $PSBoundParameters.ContainsKey('VhdxDirectory')
+
+if ($vhdxPathWasSpecified -and $vhdxDirectoryWasSpecified) {
+    throw 'Specify either -VhdxDirectory or -VhdxPath, not both.'
+}
+if (-not $vhdxPathWasSpecified) {
+    if (-not [IO.Path]::IsPathRooted($VhdxDirectory)) {
+        throw 'VhdxDirectory must be an absolute Windows path.'
+    }
+    $VhdxPath = Join-Path $VhdxDirectory 'qdisk.vhdx'
+}
 
 function Assert-Prerequisites {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {

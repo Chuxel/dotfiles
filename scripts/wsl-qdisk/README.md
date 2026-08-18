@@ -7,7 +7,8 @@ These scripts reproduce a directly mounted ext4 data disk for an Ubuntu WSL 2 di
 | Setting | Default |
 | --- | --- |
 | Distribution | `Ubuntu` |
-| Dynamic VHDX | `Q:\WSL\Ubuntu\qdisk.vhdx` |
+| VHDX directory | `Q:\WSL\Ubuntu` |
+| Dynamic VHDX | `<VhdxDirectory>\qdisk.vhdx` |
 | Maximum size | 500 GB |
 | Filesystem | ext4, label `qdisk` |
 | Linux user | `clantz` |
@@ -28,12 +29,18 @@ All settings can be overridden:
 ```powershell
 .\scripts\wsl-qdisk\setup.ps1 `
   -DistroName Ubuntu `
-  -VhdxPath 'Q:\WSL\Ubuntu\qdisk.vhdx' `
+  -VhdxDirectory 'D:\WSL-Data\Ubuntu' `
   -SizeGB 500 `
   -DiskLabel qdisk `
   -LinuxUser clantz `
   -MountPoint /home/clantz/Repos `
   -TaskName 'WSL Ubuntu qdisk mount'
+```
+
+`-VhdxDirectory` controls where `qdisk.vhdx` is stored. Use `-VhdxPath` instead when the file itself needs a different name; the two parameters are mutually exclusive:
+
+```powershell
+.\scripts\wsl-qdisk\setup.ps1 -VhdxPath 'D:\Virtual Disks\repos-data.vhdx'
 ```
 
 The setup is idempotent. It creates an expandable VHDX only when the path is absent and formats only a newly attached, signature-free disk. It refuses to reformat an existing or ambiguous filesystem. A matching existing filesystem must be a whole-disk ext4 filesystem with the requested label.
@@ -63,7 +70,7 @@ This checks PowerShell parsing and, when `sh` or WSL is available, shell syntax:
 Cleanup removes only marked configuration installed by these scripts, unmounts the filesystem, and detaches the VHDX. It does **not** remove the VHDX or its data by default:
 
 ```powershell
-.\scripts\wsl-qdisk\uninstall.ps1
+.\scripts\wsl-qdisk\uninstall.ps1 -VhdxDirectory 'D:\WSL-Data\Ubuntu'
 ```
 
 Permanent deletion requires both a destructive switch and an exact, case-sensitive confirmation:
