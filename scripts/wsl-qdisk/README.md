@@ -6,7 +6,7 @@ These scripts reproduce a directly mounted ext4 data disk for an Ubuntu WSL 2 di
 
 | Setting | Default |
 | --- | --- |
-| Distribution | `Ubuntu` |
+| Distribution | Default WSL distribution |
 | VHDX directory | `Q:\WSL\Ubuntu` |
 | Dynamic VHDX | `<VhdxDirectory>\qdisk.vhdx` |
 | Maximum size | 500 GB |
@@ -36,6 +36,8 @@ All settings can be overridden:
   -MountPoint /home/clantz/Repos `
   -TaskName 'WSL Ubuntu qdisk mount'
 ```
+
+When `-DistroName` is omitted, setup and uninstall use the current default shown by `wsl --list --verbose`. Pass `-DistroName` to target a different installed distribution.
 
 `-VhdxDirectory` controls where `qdisk.vhdx` is stored. Use `-VhdxPath` instead when the file itself needs a different name; the two parameters are mutually exclusive:
 

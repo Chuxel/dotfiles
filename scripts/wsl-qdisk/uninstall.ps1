@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [string]$DistroName = 'Ubuntu',
+    [string]$DistroName,
 
     [ValidateNotNullOrEmpty()]
     [string]$VhdxDirectory = 'Q:\WSL\Ubuntu',
@@ -69,6 +69,28 @@ function Assert-Prerequisites {
     if (-not (Test-Path -LiteralPath $script:WslExe -PathType Leaf)) {
         throw "Required executable was not found: $($script:WslExe)"
     }
+}
+
+function Get-DefaultDistroName {
+    if (-not (Test-Path -LiteralPath $script:WslExe -PathType Leaf)) {
+        throw "Required executable was not found: $($script:WslExe)"
+    }
+
+    $output = @(& $script:WslExe --list --quiet 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        $message = ($output | ForEach-Object { "$_" }) -join [Environment]::NewLine
+        throw "Could not determine the default WSL distribution: $message"
+    }
+
+    $defaultDistro = @(
+        $output |
+            ForEach-Object { "$_".Replace(([char]0).ToString(), '').Trim() } |
+            Where-Object { $_ }
+    ) | Select-Object -First 1
+    if (-not $defaultDistro) {
+        throw 'Could not determine the default WSL distribution because no distributions are installed.'
+    }
+    return $defaultDistro
 }
 
 function Invoke-Wsl {
@@ -277,6 +299,10 @@ function Detach-Vhdx {
     if ($wasAttached) {
         throw "Failed to detach $VhdxPath`: $(($detachOutput | ForEach-Object { "$_" }) -join ' ')"
     }
+}
+
+if (-not $DistroName) {
+    $DistroName = Get-DefaultDistroName
 }
 
 Assert-Prerequisites
