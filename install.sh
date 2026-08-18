@@ -225,7 +225,8 @@ installBun() {
     fi
 
     if ! grep 'BUN_INSTALL' "$rc_file" > /dev/null 2>&1; then
-    tee -a "$rc_file" > /dev/null \
+        if [ "$IS_MACOS" = "true" ]; then
+            tee -a "$rc_file" > /dev/null \
 << 'EOF'
 
 # bun completions
@@ -236,6 +237,23 @@ export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 EOF
+        else
+            tee -a "$rc_file" > /dev/null \
+<< 'EOF'
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+EOF
+        fi
+    fi
+
+    if [ "$IS_MACOS" != "true" ]; then
+        sed -i \
+            -e '/^# bun completions$/d' \
+            -e '\|^\[ -s "\$HOME/.bun/_bun" \] && source "\$HOME/.bun/_bun"$|d' \
+            "$rc_file"
     fi
 }
 
@@ -263,6 +281,25 @@ installCopilotCli() {
     fi
 
     curl -fL --progress-bar https://gh.io/copilot-install | bash
+}
+
+installOhMyPosh() {
+    if [ "$IS_MACOS" = "true" ]; then
+        if ! type oh-my-posh > /dev/null 2>&1; then
+            brew install jandedobbeleer/oh-my-posh/oh-my-posh
+        fi
+    else
+        if [ ! -x "$HOME/.local/bin/oh-my-posh" ]; then
+            curl -fL --progress-bar https://ohmyposh.dev/install.sh \
+                | bash -s -- -d "$HOME/.local/bin"
+        fi
+    fi
+
+    if { [ "$IS_MACOS" = "true" ] && ! type oh-my-posh > /dev/null 2>&1; } \
+        || { [ "$IS_MACOS" != "true" ] && [ ! -x "$HOME/.local/bin/oh-my-posh" ]; }; then
+        echo "(!) Oh My Posh installation could not be verified." >&2
+        exit 1
+    fi
 }
 
 canUseSecretService() {
@@ -391,7 +428,7 @@ if [ "$IS_MACOS" = "true" ]; then
     installXcodeCommandLineTools
     downloadFonts
     installHomebrew
-    brew install jandedobbeleer/oh-my-posh/oh-my-posh
+    installOhMyPosh
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
     tee -a "$HOME/.zshrc" > /dev/null \
 << 'EOF'
@@ -454,29 +491,33 @@ else
         fc-cache -f -v
     fi
 
-    # Add .local/bin to PATH and if not already present
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        tee -a "$HOME/.bashrc" > /dev/null \
+    # Persist .local/bin even when it is already present in this process's PATH
+    if ! grep -F 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" > /dev/null 2>&1; then
+        if grep -q 'oh-my-posh init bash' "$HOME/.bashrc" > /dev/null 2>&1; then
+            sed -i '\|oh-my-posh init bash|i # Add .local/bin to PATH\nexport PATH="$HOME/.local/bin:$PATH"\n' "$HOME/.bashrc"
+        else
+            tee -a "$HOME/.bashrc" > /dev/null \
 << 'EOF'
 
 # Add .local/bin to PATH
 export PATH="$HOME/.local/bin:$PATH"
 
 EOF
+        fi
     fi
     export PATH="$HOME/.local/bin:$PATH"
 
+    installOhMyPosh
     installBleSh
 
-    # Oh My Posh
-    curl -fL --progress-bar https://ohmyposh.dev/install.sh | bash -s
     cp -f chuxel.omp.json "$HOME/.chuxel.omp.json"
+    sed -i 's|eval "$(oh-my-posh init bash --config \$HOME/.chuxel.omp.json)"|eval "$("$HOME/.local/bin/oh-my-posh" init bash --config "$HOME/.chuxel.omp.json")"|' "$HOME/.bashrc"
     if ! grep 'oh-my-posh' ~/.bashrc > /dev/null 2>&1; then
     tee -a "$HOME/.bashrc" > /dev/null \
 << 'EOF'
 
 # Add Oh My Posh
-eval "$(oh-my-posh init bash --config $HOME/.chuxel.omp.json)"
+eval "$("$HOME/.local/bin/oh-my-posh" init bash --config "$HOME/.chuxel.omp.json")"
 
 EOF
     fi
