@@ -396,12 +396,20 @@ function Get-LinuxDisks {
 }
 
 function Get-DeviceByLabel {
-    $output = @(Invoke-UbuntuRoot -Command @'
-if [ -e "/dev/disk/by-label/$1" ]; then
-    readlink -f -- "/dev/disk/by-label/$1"
-fi
-'@ -CommandArguments @($DiskLabel))
-    return ($output -join '').Trim()
+    $devices = @(
+        Invoke-UbuntuRoot `
+            -Command 'blkid -o device -t "LABEL=$1" 2>/dev/null || true' `
+            -CommandArguments @($DiskLabel) |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { $_ }
+    )
+    if ($devices.Count -gt 1) {
+        throw "Multiple filesystems are labeled '$DiskLabel': $($devices -join ', ')."
+    }
+    if ($devices.Count -eq 1) {
+        return $devices[0]
+    }
+    return ''
 }
 
 function Wait-ForDeviceLabel {
@@ -419,7 +427,7 @@ function Wait-ForDeviceLabel {
         Start-Sleep -Seconds 1
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    throw "/dev/disk/by-label/$DiskLabel did not appear for $ExpectedDevice."
+    throw "The '$DiskLabel' filesystem label did not become discoverable for $ExpectedDevice."
 }
 
 function Start-MountTaskAndWait {

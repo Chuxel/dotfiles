@@ -55,7 +55,7 @@ The installer registers an on-demand, highest-run-level Scheduled Task whose act
 C:\Windows\System32\wsl.exe --mount "Q:\WSL\Ubuntu\qdisk.vhdx" --vhd --bare
 ```
 
-It installs the tracked `mount-qdisk.sh` template as `/usr/local/sbin/mount-qdisk` with LF line endings and mode `0755`. `/etc/wsl.conf` retains unrelated content, keeps `systemd=true`, and runs the helper from its `[boot]` command. If the label is not present, the helper starts the Windows task and waits up to 30 seconds. It validates the ext4 label and the filesystem UUID captured during setup, creates the real mount-point directory, mounts the validated `/dev/disk/by-label/qdisk` device, and assigns the filesystem root to the configured Linux user. A duplicate label therefore fails safely instead of selecting an unrelated disk.
+It installs the tracked `mount-qdisk.sh` template as `/usr/local/sbin/mount-qdisk` with LF line endings and mode `0755`. `/etc/wsl.conf` retains unrelated content, keeps `systemd=true`, and runs the helper from its `[boot]` command. If the filesystem UUID is not present, the helper starts the Windows task and waits up to 30 seconds. It discovers the device with `blkid`, which works even when WSL does not create `/dev/disk/by-label` links, then validates the ext4 label and captured UUID, creates the real mount-point directory, mounts the validated device, and assigns the filesystem root to the configured Linux user. UUID-based selection prevents a duplicate label from selecting an unrelated disk.
 
 ## Validate
 

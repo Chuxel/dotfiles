@@ -7,20 +7,22 @@ filesystem_uuid=__FILESYSTEM_UUID__
 linux_user=__LINUX_USER__
 mount_point=__MOUNT_POINT__
 task_name=__TASK_NAME__
-device="/dev/disk/by-label/$disk_label"
 
-if [ ! -e "$device" ]; then
+device="$(blkid -U "$filesystem_uuid" 2>/dev/null || true)"
+if [ -z "$device" ]; then
     /mnt/c/Windows/System32/schtasks.exe /Run /TN "$task_name" >/dev/null
 
     remaining=30
-    while [ "$remaining" -gt 0 ] && [ ! -e "$device" ]; do
+    while [ "$remaining" -gt 0 ]; do
         sleep 1
+        device="$(blkid -U "$filesystem_uuid" 2>/dev/null || true)"
+        [ -n "$device" ] && break
         remaining=$((remaining - 1))
     done
 fi
 
-if [ ! -b "$device" ]; then
-    echo "qdisk: block device $device did not appear within 30 seconds" >&2
+if [ -z "$device" ] || [ ! -b "$device" ]; then
+    echo "qdisk: filesystem UUID $filesystem_uuid did not appear within 30 seconds" >&2
     exit 1
 fi
 
