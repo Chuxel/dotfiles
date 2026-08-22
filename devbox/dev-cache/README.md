@@ -92,7 +92,7 @@ The script deliberately does **not** set pnpm `store-dir` or create `<CacheRoot>
 
 By default, setup moves contents from previous environment paths and known default tool-cache locations. Pass `-MigrateExisting:$false` to configure future cache use only. npm global-prefix contents and Rust toolchains are included. Cargo's `bin`, `.crates.toml`, and `.crates2.json` stay under the user profile so installed commands and their metadata remain on `C:`.
 
-Internal cache junctions, such as Bun package aliases, are recreated to target the canonical directory beneath the new cache root. If an earlier migration materialized an alias as a physical directory, that cache-only alias copy is replaced after its canonical target is verified. Reparse points targeting outside the migrated cache are rejected.
+Internal cache junctions, such as Bun package aliases, and file symbolic links, such as links within Cargo git checkouts, are recreated beneath the new cache root. If an earlier migration materialized a directory alias as a physical directory, that cache-only alias copy is replaced after its canonical target is verified. Reparse points targeting outside the migrated cache are rejected.
 
 Existing Windows `TEMP` and `TMP` contents are never bulk-moved because unrelated running processes may be using them; only future temporary files use the new location. The script does not redirect all of `AppData` and does not create junctions.
 

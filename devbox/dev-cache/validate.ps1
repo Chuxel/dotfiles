@@ -379,6 +379,24 @@ if (-not $failed) {
             (Test-Path -LiteralPath (Join-Path $relativeLinkDestination 'SKILL.md')) `
             'A migrated relative symbolic link must resolve within the destination cache.'
 
+        $fileLinkSource = Join-Path $migrationTestRoot 'file-link-source'
+        $fileLinkDestination = Join-Path $migrationTestRoot 'file-link-destination'
+        New-Item -ItemType Directory -Path (Join-Path $fileLinkSource 'nested') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $fileLinkSource 'LICENSE'), 'license')
+        New-Item `
+            -ItemType SymbolicLink `
+            -Path (Join-Path $fileLinkSource 'nested\LICENSE') `
+            -Target '..\LICENSE' | Out-Null
+        Move-DirectoryContents -Source $fileLinkSource -Destination $fileLinkDestination
+        $migratedFileLinkPath = Join-Path $fileLinkDestination 'nested\LICENSE'
+        $migratedFileLink = Get-Item -LiteralPath $migratedFileLinkPath -Force
+        Assert-Equal $migratedFileLink.LinkType 'SymbolicLink' 'File symbolic links must remain symbolic links.'
+        Assert-Equal @($migratedFileLink.Target)[0] '..\LICENSE' 'Relative file-link targets must remain relative.'
+        Assert-Equal `
+            ([IO.File]::ReadAllText($migratedFileLinkPath)) `
+            'license' `
+            'A migrated relative file link must resolve within the destination cache.'
+
         $externalTarget = Join-Path $migrationTestRoot 'external-target'
         $externalSource = Join-Path $migrationTestRoot 'external-source'
         $externalDestination = Join-Path $migrationTestRoot 'external-destination'
@@ -395,6 +413,24 @@ if (-not $failed) {
             $externalRejected = $true
         }
         Assert-True $externalRejected 'External reparse-point targets must be rejected.'
+
+        $externalFileTarget = Join-Path $migrationTestRoot 'external-file-target.txt'
+        $externalFileSource = Join-Path $migrationTestRoot 'external-file-source'
+        $externalFileDestination = Join-Path $migrationTestRoot 'external-file-destination'
+        New-Item -ItemType Directory -Path $externalFileSource -Force | Out-Null
+        [IO.File]::WriteAllText($externalFileTarget, 'external')
+        New-Item `
+            -ItemType SymbolicLink `
+            -Path (Join-Path $externalFileSource 'external.txt') `
+            -Target $externalFileTarget | Out-Null
+        $externalFileRejected = $false
+        try {
+            Move-DirectoryContents -Source $externalFileSource -Destination $externalFileDestination
+        }
+        catch {
+            $externalFileRejected = $true
+        }
+        Assert-True $externalFileRejected 'External file symbolic-link targets must be rejected.'
     }
     finally {
         if (Test-Path -LiteralPath $migrationTestRoot) {

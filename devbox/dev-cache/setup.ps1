@@ -331,14 +331,40 @@ function Move-DirectoryContents {
         $sourceIsReparsePoint =
             ($sourceAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
         if ($sourceIsReparsePoint) {
-            if (-not $sourceItem.PSIsContainer) {
-                throw "Migration refuses a non-directory reparse point: $($sourceItem.FullName)"
-            }
-
             $mappedTarget = Get-MappedReparseTarget `
                 -Item $sourceItem `
                 -SourceRoot $MigrationSourceRoot `
                 -DestinationRoot $MigrationDestinationRoot
+            if (-not $sourceItem.PSIsContainer) {
+                if ($sourceItem.LinkType -ne 'SymbolicLink') {
+                    throw "Migration refuses an unsupported file reparse point: $($sourceItem.FullName)"
+                }
+                if (-not (Test-Path -LiteralPath $mappedTarget.Source -PathType Leaf) -and
+                    -not (Test-Path -LiteralPath $mappedTarget.Destination -PathType Leaf)) {
+                    throw "Migration file-link target does not exist: $($mappedTarget.Source)"
+                }
+
+                if (Test-Path -LiteralPath $destinationItemPath) {
+                    [IO.File]::Delete($sourceItem.FullName)
+                    continue
+                }
+
+                $destinationParent = Split-Path -Parent $destinationItemPath
+                New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+                $symbolicLinkTarget = if ([IO.Path]::IsPathRooted($mappedTarget.Raw)) {
+                    $mappedTarget.Destination
+                }
+                else {
+                    $mappedTarget.Raw
+                }
+                New-Item `
+                    -ItemType SymbolicLink `
+                    -Path $destinationItemPath `
+                    -Target $symbolicLinkTarget | Out-Null
+                [IO.File]::Delete($sourceItem.FullName)
+                continue
+            }
+
             if (Test-Path -LiteralPath $mappedTarget.Source -PathType Container) {
                 Move-DirectoryContents `
                     -Source $mappedTarget.Source `
