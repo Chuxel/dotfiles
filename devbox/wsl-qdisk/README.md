@@ -21,13 +21,13 @@ Requirements are Windows 11 (or a current Windows 10 WSL release) with `wsl --mo
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\wsl-qdisk\setup.ps1
+.\devbox\wsl-qdisk\setup.ps1
 ```
 
 All settings can be overridden:
 
 ```powershell
-.\scripts\wsl-qdisk\setup.ps1 `
+.\devbox\wsl-qdisk\setup.ps1 `
   -DistroName Ubuntu `
   -VhdxDirectory 'D:\WSL-Data\Ubuntu' `
   -SizeGB 500 `
@@ -42,7 +42,7 @@ When `-DistroName` is omitted, setup and uninstall use the current default shown
 `-VhdxDirectory` controls where `qdisk.vhdx` is stored. Use `-VhdxPath` instead when the file itself needs a different name; the two parameters are mutually exclusive:
 
 ```powershell
-.\scripts\wsl-qdisk\setup.ps1 -VhdxPath 'D:\Virtual Disks\repos-data.vhdx'
+.\devbox\wsl-qdisk\setup.ps1 -VhdxPath 'D:\Virtual Disks\repos-data.vhdx'
 ```
 
 The setup is idempotent. It creates an expandable VHDX only when the path is absent and formats only a newly attached, signature-free disk. It refuses to reformat an existing or ambiguous filesystem. A matching existing filesystem must be a whole-disk ext4 filesystem with the requested label.
@@ -64,7 +64,7 @@ It installs the tracked `mount-qdisk.sh` template as `/usr/local/sbin/mount-qdis
 This checks PowerShell parsing and, when `sh` or WSL is available, shell syntax:
 
 ```powershell
-.\scripts\wsl-qdisk\validate.ps1
+.\devbox\wsl-qdisk\validate.ps1
 ```
 
 ## Uninstall and data safety
@@ -72,13 +72,13 @@ This checks PowerShell parsing and, when `sh` or WSL is available, shell syntax:
 Cleanup removes only marked configuration installed by these scripts, unmounts the filesystem, and detaches the VHDX. It does **not** remove the VHDX or its data by default:
 
 ```powershell
-.\scripts\wsl-qdisk\uninstall.ps1 -VhdxDirectory 'D:\WSL-Data\Ubuntu'
+.\devbox\wsl-qdisk\uninstall.ps1 -VhdxDirectory 'D:\WSL-Data\Ubuntu'
 ```
 
 Permanent deletion requires both a destructive switch and an exact, case-sensitive confirmation:
 
 ```powershell
-.\scripts\wsl-qdisk\uninstall.ps1 `
+.\devbox\wsl-qdisk\uninstall.ps1 `
   -DeleteVhdx `
   -ConfirmVhdxDeletion 'DELETE Q:\WSL\Ubuntu\qdisk.vhdx'
 ```

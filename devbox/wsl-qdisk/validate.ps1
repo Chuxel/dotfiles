@@ -1,3 +1,4 @@
+<# Validates the WSL qdisk PowerShell and shell scripts. #>
 [CmdletBinding()]
 param()
 
