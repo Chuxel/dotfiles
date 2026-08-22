@@ -70,6 +70,7 @@ if (-not $failed) {
         'Get-PathDriveRoot',
         'Resolve-EnvironmentRedirect',
         'Test-PathListContains',
+        'Get-InstalledRustupToolchains',
         'Assert-DirectoryMigrationCompatible',
         'Move-DirectoryContents',
         'Set-MavenLocalRepository'
@@ -160,6 +161,22 @@ if (-not $failed) {
     $setupContent = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'setup.ps1'))
     Assert-True ($setupContent -notmatch 'store-dir') 'setup.ps1 must not configure pnpm store-dir.'
     Assert-True ($setupContent -notmatch 'Join-Path\s+\$CacheRoot\s+[''"]pnpm[''"]') 'setup.ps1 must not create a pnpm cache directory.'
+    Assert-True ($setupContent -notmatch 'rustup\s+default\s+stable') 'setup.ps1 must not download or select a Rust toolchain automatically.'
+
+    $rustToolchains = @(
+        Get-InstalledRustupToolchains -Output @(
+            'stable-x86_64-pc-windows-msvc (active, default)',
+            'nightly-x86_64-pc-windows-msvc'
+        )
+    )
+    Assert-Equal $rustToolchains.Count 2 'Installed Rustup toolchains must be recognized.'
+    Assert-Equal $rustToolchains[0] `
+        'stable-x86_64-pc-windows-msvc (active, default)' `
+        'Rustup toolchain details must remain intact.'
+    Assert-Equal `
+        @(Get-InstalledRustupToolchains -Output @('no installed toolchains')).Count `
+        0 `
+        'Rustup no-toolchains output must not be treated as an installed toolchain.'
 
     $migrationTestRoot = Join-Path ([IO.Path]::GetTempPath()) "dev-cache-migration-$([Guid]::NewGuid().ToString('N'))"
     try {

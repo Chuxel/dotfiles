@@ -412,6 +412,85 @@ function Add-ToEffectivePath {
     }
 }
 
+function Get-InstalledRustupToolchains {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$Output
+    )
+
+    return @(
+        $Output |
+            ForEach-Object { "$_".Trim() } |
+            Where-Object { $_ -and $_ -ne 'no installed toolchains' }
+    )
+}
+
+function Assert-RustupConfiguration {
+    param(
+        [Parameter(Mandatory)]
+        [string]$RustupCommand
+    )
+
+    $toolchainOutput = @(& $RustupCommand toolchain list 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not list Rustup toolchains from '$env:RUSTUP_HOME': $($toolchainOutput -join [Environment]::NewLine)"
+    }
+
+    $toolchains = @(Get-InstalledRustupToolchains -Output $toolchainOutput)
+    if ($toolchains.Count -eq 0) {
+        Write-Warning "Rustup is installed but '$env:RUSTUP_HOME' contains no installed toolchains."
+        return
+    }
+
+    $activeOutput = @(& $RustupCommand show active-toolchain 2>&1)
+    if ($LASTEXITCODE -ne 0 -or
+        ($activeOutput -join [Environment]::NewLine) -match 'no active toolchain') {
+        throw @"
+Rustup found installed toolchains in '$env:RUSTUP_HOME' but no active default.
+The script will not download or select a toolchain automatically. Run 'rustup default <installed-toolchain>' after reviewing 'rustup toolchain list'.
+"@
+    }
+
+    Write-Host "Rustup configuration verified: $(($activeOutput -join ' ').Trim())"
+}
+
+function Publish-EnvironmentChange {
+    if (-not ('DevCache.NativeMethods' -as [type])) {
+        Add-Type -TypeDefinition @'
+namespace DevCache {
+    using System;
+    using System.Runtime.InteropServices;
+
+    public static class NativeMethods {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr SendMessageTimeout(
+            IntPtr hWnd,
+            uint message,
+            UIntPtr wParam,
+            string lParam,
+            uint flags,
+            uint timeout,
+            out UIntPtr result);
+    }
+}
+'@
+    }
+
+    $result = [UIntPtr]::Zero
+    $returnValue = [DevCache.NativeMethods]::SendMessageTimeout(
+        [IntPtr]0xffff,
+        0x001a,
+        [UIntPtr]::Zero,
+        'Environment',
+        0x0002,
+        5000,
+        [ref]$result)
+    if ($returnValue -eq [IntPtr]::Zero -and [Runtime.InteropServices.Marshal]::GetLastWin32Error() -ne 0) {
+        Write-Warning 'Could not notify other applications that persistent environment settings changed.'
+    }
+}
+
 function Set-MavenLocalRepository {
     param(
         [Parameter(Mandatory)]
@@ -671,6 +750,14 @@ else {
     Write-Warning 'sccache is not installed; configured its cache directory but skipped the Rust compiler wrapper.'
 }
 
+$rustup = Get-Command 'rustup' -ErrorAction SilentlyContinue
+if ($rustup) {
+    Assert-RustupConfiguration -RustupCommand $rustup.Source
+}
+else {
+    Write-Warning 'rustup is not installed; Rust toolchain verification was skipped.'
+}
+
 $pnpm = Get-Command 'pnpm' -ErrorAction SilentlyContinue
 if ($pnpm) {
     Write-Host 'pnpm store location is not overridden; pnpm will use its per-drive store.'
@@ -708,6 +795,8 @@ Set-MavenLocalRepository `
     -RepositoryPath (Join-Path $CacheRoot 'maven') `
     -MigrateExisting:$MigrateExisting
 
+Publish-EnvironmentChange
+
 Write-Host ''
 Write-Host "Developer cache redirects are configured; fallback root: $CacheRoot" -ForegroundColor Green
 if ($MigrateExisting) {
@@ -718,5 +807,8 @@ else {
 }
 Write-Host "Effective npm prefix: $($effectiveValues['npm_config_prefix'])"
 Write-Host "Go and Cargo-installed executables remain in their user-profile locations on $([IO.Path]::GetPathRoot($HOME))"
-Write-Host 'Start new processes (or sign out and back in) to pick up persistent environment changes.'
+Write-Host 'Other PowerShell processes that were already open cannot have their environment changed.'
+Write-Host 'Restart those shells, or refresh Rust in one with:'
+Write-Host '  $env:RUSTUP_HOME = [Environment]::GetEnvironmentVariable(''RUSTUP_HOME'', ''User'')'
+Write-Host '  $env:CARGO_HOME = [Environment]::GetEnvironmentVariable(''CARGO_HOME'', ''User'')'
 Write-Warning "The drive containing '$CacheRoot' must remain available whenever these tools run."
