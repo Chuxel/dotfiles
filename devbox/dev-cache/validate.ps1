@@ -71,6 +71,10 @@ if (-not $failed) {
         'Resolve-EnvironmentRedirect',
         'Test-PathListContains',
         'Get-InstalledRustupToolchains',
+        'Select-RustupDefaultCandidate',
+        'Resolve-ReparseTarget',
+        'Get-MappedReparseTarget',
+        'Get-MigrationItems',
         'Assert-DirectoryMigrationCompatible',
         'Move-DirectoryContents',
         'Set-MavenLocalRepository'
@@ -177,6 +181,21 @@ if (-not $failed) {
         @(Get-InstalledRustupToolchains -Output @('no installed toolchains')).Count `
         0 `
         'Rustup no-toolchains output must not be treated as an installed toolchain.'
+    Assert-Equal `
+        (Select-RustupDefaultCandidate -Toolchains $rustToolchains) `
+        'stable-x86_64-pc-windows-msvc' `
+        'An exact installed stable toolchain must be selected as the default candidate.'
+    Assert-Equal `
+        (Select-RustupDefaultCandidate -Toolchains @('1.94.0-x86_64-pc-windows-msvc')) `
+        '1.94.0-x86_64-pc-windows-msvc' `
+        'A sole installed toolchain must be selected as the default candidate.'
+    Assert-Equal `
+        (Select-RustupDefaultCandidate -Toolchains @(
+            'nightly-2026-04-14-x86_64-pc-windows-msvc',
+            '1.94.0-x86_64-pc-windows-msvc'
+        )) `
+        $null `
+        'Multiple installed toolchains without stable must require explicit choice.'
 
     $migrationTestRoot = Join-Path ([IO.Path]::GetTempPath()) "dev-cache-migration-$([Guid]::NewGuid().ToString('N'))"
     try {
@@ -218,6 +237,91 @@ if (-not $failed) {
         Assert-True $collisionRejected 'Different destination content must stop migration.'
         Assert-True (Test-Path -LiteralPath (Join-Path $collisionSource 'must-remain.txt')) 'Collision preflight must prevent partial moves.'
 
+        $resumableSource = Join-Path $migrationTestRoot 'resumable-source'
+        $resumableDestination = Join-Path $migrationTestRoot 'resumable-destination'
+        New-Item -ItemType Directory -Path $resumableSource, $resumableDestination -Force | Out-Null
+        $resumableSourceFile = Join-Path $resumableSource 'cache.bin'
+        $resumableDestinationFile = Join-Path $resumableDestination 'cache.bin'
+        [IO.File]::WriteAllText($resumableSourceFile, 'newer source')
+        [IO.File]::WriteAllText($resumableDestinationFile, 'older destination')
+        [IO.File]::SetLastWriteTimeUtc($resumableDestinationFile, [DateTime]::UtcNow.AddMinutes(-2))
+        [IO.File]::SetLastWriteTimeUtc($resumableSourceFile, [DateTime]::UtcNow.AddMinutes(-1))
+        Move-DirectoryContents `
+            -Source $resumableSource `
+            -Destination $resumableDestination `
+            -ResolveCacheConflicts
+        Assert-Equal `
+            ([IO.File]::ReadAllText($resumableDestinationFile)) `
+            'newer source' `
+            'A newer source cache file must replace an older destination file.'
+
+        New-Item -ItemType Directory -Path $resumableSource -Force | Out-Null
+        [IO.File]::WriteAllText($resumableSourceFile, 'older source')
+        [IO.File]::SetLastWriteTimeUtc($resumableSourceFile, [DateTime]::UtcNow.AddMinutes(-2))
+        [IO.File]::SetLastWriteTimeUtc($resumableDestinationFile, [DateTime]::UtcNow.AddMinutes(-1))
+        Move-DirectoryContents `
+            -Source $resumableSource `
+            -Destination $resumableDestination `
+            -ResolveCacheConflicts
+        Assert-Equal `
+            ([IO.File]::ReadAllText($resumableDestinationFile)) `
+            'newer source' `
+            'A newer destination cache file must be retained.'
+
+        $lockedSource = Join-Path $migrationTestRoot 'locked-source'
+        $lockedDestination = Join-Path $migrationTestRoot 'locked-destination'
+        New-Item -ItemType Directory -Path $lockedSource, $lockedDestination -Force | Out-Null
+        $lockedSourceFile = Join-Path $lockedSource 'cache.db'
+        $lockedDestinationFile = Join-Path $lockedDestination 'cache.db'
+        [IO.File]::WriteAllText($lockedSourceFile, 'in use')
+        [IO.File]::WriteAllText($lockedDestinationFile, 'older')
+        [IO.File]::SetLastWriteTimeUtc($lockedDestinationFile, [DateTime]::UtcNow.AddMinutes(-2))
+        [IO.File]::SetLastWriteTimeUtc($lockedSourceFile, [DateTime]::UtcNow.AddMinutes(-1))
+        $lockedStream = [IO.File]::Open(
+            $lockedSourceFile,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None)
+        try {
+            Move-DirectoryContents `
+                -Source $lockedSource `
+                -Destination $lockedDestination `
+                -ResolveCacheConflicts
+            Assert-True `
+                (Test-Path -LiteralPath $lockedSourceFile) `
+                'A locked cache file must remain for a later migration run.'
+        }
+        finally {
+            $lockedStream.Dispose()
+        }
+
+        $freshLockedSource = Join-Path $migrationTestRoot 'fresh-locked-source'
+        $freshLockedDestination = Join-Path $migrationTestRoot 'fresh-locked-destination'
+        New-Item -ItemType Directory -Path $freshLockedSource -Force | Out-Null
+        $freshLockedSourceFile = Join-Path $freshLockedSource 'cache.db'
+        $freshLockedDestinationFile = Join-Path $freshLockedDestination 'cache.db'
+        [IO.File]::WriteAllText($freshLockedSourceFile, 'in use')
+        $freshLockedStream = [IO.File]::Open(
+            $freshLockedSourceFile,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None)
+        try {
+            Move-DirectoryContents `
+                -Source $freshLockedSource `
+                -Destination $freshLockedDestination `
+                -ResolveCacheConflicts
+            Assert-True `
+                (Test-Path -LiteralPath $freshLockedSourceFile) `
+                'A fresh locked cache file must remain for a later migration run.'
+            Assert-True `
+                (-not (Test-Path -LiteralPath $freshLockedDestinationFile)) `
+                'A failed fresh copy must not leave a partial destination file.'
+        }
+        finally {
+            $freshLockedStream.Dispose()
+        }
+
         $cargoSource = Join-Path $migrationTestRoot 'cargo-source'
         $cargoDestination = Join-Path $migrationTestRoot 'cargo-destination'
         New-Item -ItemType Directory -Path (Join-Path $cargoSource 'bin') -Force | Out-Null
@@ -232,6 +336,65 @@ if (-not $failed) {
         Assert-True (Test-Path -LiteralPath (Join-Path $cargoSource 'bin\tool.exe')) 'Cargo binaries must remain in place.'
         Assert-True (Test-Path -LiteralPath (Join-Path $cargoSource '.crates.toml')) 'Cargo install metadata must remain in place.'
         Assert-True (Test-Path -LiteralPath (Join-Path $cargoDestination 'registry\cache.bin')) 'Cargo cache contents must migrate.'
+
+        $junctionSource = Join-Path $migrationTestRoot 'junction-source'
+        $junctionDestination = Join-Path $migrationTestRoot 'junction-destination'
+        $canonicalSource = Join-Path $junctionSource 'package@1.0.0'
+        $aliasSource = Join-Path $junctionSource 'package\1.0.0'
+        $canonicalDestination = Join-Path $junctionDestination 'package@1.0.0'
+        $aliasDestination = Join-Path $junctionDestination 'package\1.0.0'
+        New-Item -ItemType Directory -Path $canonicalSource -Force | Out-Null
+        New-Item -ItemType Directory -Path $aliasDestination -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $canonicalSource 'package.json'), '{"name":"package"}')
+        [IO.File]::WriteAllText((Join-Path $aliasDestination 'package.json'), '{"name":"package"}')
+        New-Item -ItemType Junction -Path $aliasSource -Target $canonicalSource -Force | Out-Null
+        Move-DirectoryContents -Source $junctionSource -Destination $junctionDestination
+        $migratedAlias = Get-Item -LiteralPath $aliasDestination -Force
+        Assert-True `
+            (($migratedAlias.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) `
+            'An internal cache junction must remain a junction after migration.'
+        Assert-Equal `
+            ([IO.Path]::GetFullPath(@($migratedAlias.Target)[0]).TrimEnd('\')) `
+            ([IO.Path]::GetFullPath($canonicalDestination).TrimEnd('\')) `
+            'An internal cache junction must target the migrated canonical directory.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $aliasDestination 'package.json')) `
+            'A migrated internal cache junction must resolve package content.'
+
+        $relativeTargetSource = Join-Path $junctionSource 'skills-real'
+        $relativeLinkSource = Join-Path $junctionSource '.claude\skills'
+        New-Item -ItemType Directory -Path $relativeTargetSource -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $relativeTargetSource 'SKILL.md'), 'skill')
+        New-Item `
+            -ItemType SymbolicLink `
+            -Path $relativeLinkSource `
+            -Target '..\skills-real' `
+            -Force | Out-Null
+        Move-DirectoryContents -Source $junctionSource -Destination $junctionDestination
+        $relativeLinkDestination = Join-Path $junctionDestination '.claude\skills'
+        $migratedRelativeLink = Get-Item -LiteralPath $relativeLinkDestination -Force
+        Assert-Equal $migratedRelativeLink.LinkType 'SymbolicLink' 'Relative symbolic links must remain symbolic links.'
+        Assert-Equal @($migratedRelativeLink.Target)[0] '..\skills-real' 'Relative symbolic-link targets must remain relative.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $relativeLinkDestination 'SKILL.md')) `
+            'A migrated relative symbolic link must resolve within the destination cache.'
+
+        $externalTarget = Join-Path $migrationTestRoot 'external-target'
+        $externalSource = Join-Path $migrationTestRoot 'external-source'
+        $externalDestination = Join-Path $migrationTestRoot 'external-destination'
+        New-Item -ItemType Directory -Path $externalTarget, $externalSource -Force | Out-Null
+        New-Item `
+            -ItemType Junction `
+            -Path (Join-Path $externalSource 'external') `
+            -Target $externalTarget | Out-Null
+        $externalRejected = $false
+        try {
+            Move-DirectoryContents -Source $externalSource -Destination $externalDestination
+        }
+        catch {
+            $externalRejected = $true
+        }
+        Assert-True $externalRejected 'External reparse-point targets must be rejected.'
     }
     finally {
         if (Test-Path -LiteralPath $migrationTestRoot) {

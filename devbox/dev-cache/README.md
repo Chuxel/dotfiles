@@ -19,13 +19,19 @@ Use a different absolute fallback root when needed:
 
 `CacheRoot` is a fallback for caches that need relocation. It does not replace an effective cache already located on `Q:` or another non-system drive.
 
-Move existing tool-cache contents when applying redirects:
+Existing tool-cache contents are migrated by default when applying redirects:
 
 ```powershell
-.\devbox\dev-cache\setup.ps1 -MigrateExisting
+.\devbox\dev-cache\setup.ps1
 ```
 
-Migration merges directories without overwriting different files. It performs a collision preflight and fails visibly before moving from a source when the destination contains conflicting content. Identical files are de-duplicated. Rerunning resumes an interrupted cross-volume move safely.
+Migration merges cache directories and de-duplicates identical files. When an interrupted migration leaves different versions of a cache file at both locations, the newer file wins; every copied file is hash-verified. Files locked by a running tool are reported and left at the source for a later run. Rerunning therefore converges safely instead of failing on cache entries updated or held open between runs.
+
+Disable migration for a configuration-only run:
+
+```powershell
+.\devbox\dev-cache\setup.ps1 -MigrateExisting:$false
+```
 
 ## Existing configuration and precedence
 
@@ -76,7 +82,7 @@ Go's `GOBIN` remains at its default user-profile location. `CARGO_INSTALL_ROOT` 
 
 When `sccache` is installed, the script sets `RUSTC_WRAPPER=sccache`. Composer is configured through its command only when installed. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
 
-When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. It does not run `rustup default stable` automatically because that could select or download a toolchain without user intent. If installed toolchains exist but no default is active, setup stops with the exact recovery command to run after reviewing `rustup toolchain list`.
+When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. If migration leaves no default, setup selects the exact already-installed `stable-*` toolchain when there is one, or the sole installed toolchain. Using the full installed name prevents a download. Ambiguous toolchain sets without one stable candidate still stop for explicit user choice.
 
 ## pnpm per-drive store
 
@@ -84,7 +90,9 @@ The script deliberately does **not** set pnpm `store-dir` or create `<CacheRoot>
 
 ## Data safety
 
-Without `-MigrateExisting`, setup configures future cache use only. With the switch, it moves contents from previous environment paths and known default tool-cache locations. npm global-prefix contents and Rust toolchains are included. Cargo's `bin`, `.crates.toml`, and `.crates2.json` stay under the user profile so installed commands and their metadata remain on `C:`.
+By default, setup moves contents from previous environment paths and known default tool-cache locations. Pass `-MigrateExisting:$false` to configure future cache use only. npm global-prefix contents and Rust toolchains are included. Cargo's `bin`, `.crates.toml`, and `.crates2.json` stay under the user profile so installed commands and their metadata remain on `C:`.
+
+Internal cache junctions, such as Bun package aliases, are recreated to target the canonical directory beneath the new cache root. If an earlier migration materialized an alias as a physical directory, that cache-only alias copy is replaced after its canonical target is verified. Reparse points targeting outside the migrated cache are rejected.
 
 Existing Windows `TEMP` and `TMP` contents are never bulk-moved because unrelated running processes may be using them; only future temporary files use the new location. The script does not redirect all of `AppData` and does not create junctions.
 
