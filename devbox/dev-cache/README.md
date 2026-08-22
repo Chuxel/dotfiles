@@ -38,6 +38,13 @@ Windows builds a process environment from Machine values and then User values, s
 
 The current PowerShell process receives the selected effective values immediately. New processes or a new sign-in are still required to receive all persistent environment and `PATH` changes.
 
+The script broadcasts a Windows environment-change notification so applications that support it can refresh before launching new shells. Windows cannot mutate the environment of a PowerShell process that was already running. Restart an existing shell, or refresh Rust there explicitly:
+
+```powershell
+$env:RUSTUP_HOME = [Environment]::GetEnvironmentVariable('RUSTUP_HOME', 'User')
+$env:CARGO_HOME = [Environment]::GetEnvironmentVariable('CARGO_HOME', 'User')
+```
+
 On the audited machine, the script adopts these existing Machine values unchanged:
 
 | Variables | Existing location |
@@ -69,6 +76,8 @@ Go's `GOBIN` remains at its default user-profile location. `CARGO_INSTALL_ROOT` 
 
 When `sccache` is installed, the script sets `RUSTC_WRAPPER=sccache`. Composer is configured through its command only when installed. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
 
+When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. It does not run `rustup default stable` automatically because that could select or download a toolchain without user intent. If installed toolchains exist but no default is active, setup stops with the exact recovery command to run after reviewing `rustup toolchain list`.
+
 ## pnpm per-drive store
 
 The script deliberately does **not** set pnpm `store-dir` or create `<CacheRoot>\pnpm`. With no explicit override, pnpm uses a store on the same drive as the project. On this machine, projects on `Q:` naturally use `Q:\.pnpm-store\v11`, while projects on `C:` use a `C:` store. This avoids cross-drive package linking and duplicate forced stores.
@@ -81,7 +90,7 @@ Existing Windows `TEMP` and `TMP` contents are never bulk-moved because unrelate
 
 ## Validate
 
-Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, pnpm behavior, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. It runs PSScriptAnalyzer when installed:
+Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, pnpm behavior, Rustup toolchain detection, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. It runs PSScriptAnalyzer when installed:
 
 ```powershell
 .\devbox\dev-cache\validate.ps1
