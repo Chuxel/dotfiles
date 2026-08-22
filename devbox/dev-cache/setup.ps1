@@ -11,9 +11,9 @@
     Absolute filesystem path that will contain the developer caches.
 
 .PARAMETER MigrateExisting
-    Moves existing tool-cache contents into newly selected locations. Conflicting
-    files are rejected before moving. Windows TEMP/TMP contents and Cargo-installed
-    binaries and install metadata remain in place.
+    Moves existing tool-cache contents into newly selected locations. Enabled by
+    default; pass -MigrateExisting:$false for configuration only. Windows TEMP/TMP
+    contents and Cargo-installed binaries and install metadata remain in place.
 
 .EXAMPLE
     .\devbox\dev-cache\setup.ps1
@@ -38,7 +38,7 @@ param(
     [string]$CacheRoot = 'Q:\.tools',
 
     [Parameter()]
-    [switch]$MigrateExisting
+    [switch]$MigrateExisting = $true
 )
 
 Set-StrictMode -Version Latest
@@ -172,10 +172,23 @@ function Assert-DirectoryMigrationCompatible {
         [Parameter(Mandatory)]
         [string]$Destination,
 
-        [string[]]$ExcludeNames = @()
+        [string[]]$ExcludeNames = @(),
+
+        [string]$MigrationSourceRoot,
+
+        [string]$MigrationDestinationRoot,
+
+        [switch]$ResolveCacheConflicts
     )
 
-    foreach ($sourceItem in @(Get-ChildItem -LiteralPath $Source -Force)) {
+    if (-not $MigrationSourceRoot) {
+        $MigrationSourceRoot = $Source
+    }
+    if (-not $MigrationDestinationRoot) {
+        $MigrationDestinationRoot = $Destination
+    }
+
+    foreach ($sourceItem in @(Get-MigrationItems -Path $Source)) {
         if ($ExcludeNames -contains $sourceItem.Name) {
             continue
         }
@@ -190,18 +203,45 @@ function Assert-DirectoryMigrationCompatible {
             ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
         $destinationIsReparsePoint =
             ($destinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
-        if ($sourceIsReparsePoint -or $destinationIsReparsePoint) {
-            throw "Migration collision involving a reparse point: $destinationItemPath"
+        if ($sourceIsReparsePoint) {
+            $mappedTarget = Get-MappedReparseTarget `
+                -Item $sourceItem `
+                -SourceRoot $MigrationSourceRoot `
+                -DestinationRoot $MigrationDestinationRoot
+            if ($destinationIsReparsePoint) {
+                $destinationTarget = Resolve-ReparseTarget -Item $destinationItem
+                if ($destinationTarget.Resolved -ne
+                    [IO.Path]::GetFullPath($mappedTarget.Destination).TrimEnd('\')) {
+                    throw "Migration collision involving a different reparse point: $destinationItemPath"
+                }
+            }
+            elseif ($sourceItem.PSIsContainer -and $destinationItem.PSIsContainer) {
+                # A previous migration may have materialized an internal alias as
+                # a real directory. The canonical target is validated separately.
+            }
+            else {
+                throw "Migration collision involving a reparse point: $destinationItemPath"
+            }
+            continue
+        }
+        if ($destinationIsReparsePoint) {
+            throw "Migration collision involving an unexpected destination reparse point: $destinationItemPath"
         }
 
         if ($sourceItem.PSIsContainer -and $destinationItem.PSIsContainer) {
             Assert-DirectoryMigrationCompatible `
                 -Source $sourceItem.FullName `
-                -Destination $destinationItem.FullName
+                -Destination $destinationItem.FullName `
+                -MigrationSourceRoot $MigrationSourceRoot `
+                -MigrationDestinationRoot $MigrationDestinationRoot `
+                -ResolveCacheConflicts:$ResolveCacheConflicts
             continue
         }
 
         if (-not $sourceItem.PSIsContainer -and -not $destinationItem.PSIsContainer) {
+            if ($ResolveCacheConflicts) {
+                continue
+            }
             $sourceHash = (Get-FileHash -LiteralPath $sourceItem.FullName -Algorithm SHA256).Hash
             $destinationHash = (Get-FileHash -LiteralPath $destinationItem.FullName -Algorithm SHA256).Hash
             if ($sourceHash -eq $destinationHash) {
@@ -223,11 +263,23 @@ function Move-DirectoryContents {
 
         [string[]]$ExcludeNames = @(),
 
-        [switch]$SuppressSummary
+        [switch]$SuppressSummary,
+
+        [string]$MigrationSourceRoot,
+
+        [string]$MigrationDestinationRoot,
+
+        [switch]$ResolveCacheConflicts
     )
 
     $sourcePath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Source))
     $destinationPath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Destination))
+    if (-not $MigrationSourceRoot) {
+        $MigrationSourceRoot = $sourcePath
+    }
+    if (-not $MigrationDestinationRoot) {
+        $MigrationDestinationRoot = $destinationPath
+    }
     if ($sourcePath.TrimEnd('\') -eq $destinationPath.TrimEnd('\')) {
         return
     }
@@ -246,52 +298,132 @@ function Move-DirectoryContents {
     }
 
     $eligibleItems = @(
-        Get-ChildItem -LiteralPath $sourcePath -Force |
+        Get-MigrationItems -Path $sourcePath |
             Where-Object { $ExcludeNames -notcontains $_.Name }
     )
     if ($eligibleItems.Count -eq 0) {
-        Write-Host "No eligible cache contents to migrate from $sourcePath"
+        if (-not $SuppressSummary) {
+            Write-Host "No eligible cache contents to migrate from $sourcePath"
+        }
         return
     }
 
     New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
-    Assert-DirectoryMigrationCompatible `
-        -Source $sourcePath `
-        -Destination $destinationPath `
-        -ExcludeNames $ExcludeNames
+    if (-not $ResolveCacheConflicts) {
+        Assert-DirectoryMigrationCompatible `
+            -Source $sourcePath `
+            -Destination $destinationPath `
+            -ExcludeNames $ExcludeNames `
+            -MigrationSourceRoot $MigrationSourceRoot `
+            -MigrationDestinationRoot $MigrationDestinationRoot
+    }
 
-    foreach ($sourceItem in @(Get-ChildItem -LiteralPath $sourcePath -Force)) {
+    foreach ($sourceItem in $eligibleItems) {
+        if (-not (Test-Path -LiteralPath $sourceItem.FullName)) {
+            continue
+        }
         if ($ExcludeNames -contains $sourceItem.Name) {
             continue
         }
 
         $sourceAttributes = $sourceItem.Attributes
         $destinationItemPath = Join-Path $destinationPath $sourceItem.Name
+        $sourceIsReparsePoint =
+            ($sourceAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        if ($sourceIsReparsePoint) {
+            if (-not $sourceItem.PSIsContainer) {
+                throw "Migration refuses a non-directory reparse point: $($sourceItem.FullName)"
+            }
+
+            $mappedTarget = Get-MappedReparseTarget `
+                -Item $sourceItem `
+                -SourceRoot $MigrationSourceRoot `
+                -DestinationRoot $MigrationDestinationRoot
+            if (Test-Path -LiteralPath $mappedTarget.Source -PathType Container) {
+                Move-DirectoryContents `
+                    -Source $mappedTarget.Source `
+                    -Destination $mappedTarget.Destination `
+                    -SuppressSummary `
+                    -MigrationSourceRoot $MigrationSourceRoot `
+                    -MigrationDestinationRoot $MigrationDestinationRoot `
+                    -ResolveCacheConflicts:$ResolveCacheConflicts
+            }
+            elseif (-not (Test-Path -LiteralPath $mappedTarget.Destination -PathType Container)) {
+                throw "Migration reparse-point target does not exist: $($mappedTarget.Source)"
+            }
+
+            if (Test-Path -LiteralPath $destinationItemPath) {
+                $destinationItem = Get-Item -LiteralPath $destinationItemPath -Force
+                $destinationIsReparsePoint =
+                    ($destinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+                if ($destinationIsReparsePoint) {
+                    [IO.Directory]::Delete($sourceItem.FullName)
+                    continue
+                }
+                if (-not (Test-Path -LiteralPath $mappedTarget.Destination -PathType Container)) {
+                    throw "Cannot replace a materialized cache alias without its canonical target: $destinationItemPath"
+                }
+                Remove-Item -LiteralPath $destinationItemPath -Recurse -Force
+            }
+
+            $destinationParent = Split-Path -Parent $destinationItemPath
+            New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+            if ($sourceItem.LinkType -eq 'SymbolicLink') {
+                $symbolicLinkTarget = if ([IO.Path]::IsPathRooted($mappedTarget.Raw)) {
+                    $mappedTarget.Destination
+                }
+                else {
+                    $mappedTarget.Raw
+                }
+                New-Item `
+                    -ItemType SymbolicLink `
+                    -Path $destinationItemPath `
+                    -Target $symbolicLinkTarget | Out-Null
+            }
+            else {
+                New-Item `
+                    -ItemType Junction `
+                    -Path $destinationItemPath `
+                    -Target $mappedTarget.Destination | Out-Null
+            }
+            [IO.Directory]::Delete($sourceItem.FullName)
+            continue
+        }
+
         if (-not (Test-Path -LiteralPath $destinationItemPath)) {
-            $sourceIsReparsePoint =
-                ($sourceAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
-            if ($sourceItem.PSIsContainer -and -not $sourceIsReparsePoint) {
+            if ($sourceItem.PSIsContainer) {
                 New-Item -ItemType Directory -Path $destinationItemPath -Force | Out-Null
                 Move-DirectoryContents `
                     -Source $sourceItem.FullName `
                     -Destination $destinationItemPath `
-                    -SuppressSummary
+                    -SuppressSummary `
+                    -MigrationSourceRoot $MigrationSourceRoot `
+                    -MigrationDestinationRoot $MigrationDestinationRoot `
+                    -ResolveCacheConflicts:$ResolveCacheConflicts
                 [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
-            }
-            elseif ($sourceIsReparsePoint) {
-                Move-Item -LiteralPath $sourceItem.FullName -Destination $destinationItemPath
             }
             else {
-                [IO.File]::Copy($sourceItem.FullName, $destinationItemPath, $false)
-                $copiedHash = (Get-FileHash -LiteralPath $destinationItemPath -Algorithm SHA256).Hash
-                $sourceHash = (Get-FileHash -LiteralPath $sourceItem.FullName -Algorithm SHA256).Hash
-                if ($copiedHash -ne $sourceHash) {
-                    Remove-Item -LiteralPath $destinationItemPath -Force
-                    throw "Migration copy verification failed: $($sourceItem.FullName)"
+                try {
+                    [IO.File]::Copy($sourceItem.FullName, $destinationItemPath, $false)
+                    $copiedHash = (Get-FileHash -LiteralPath $destinationItemPath -Algorithm SHA256).Hash
+                    $sourceHash = (Get-FileHash -LiteralPath $sourceItem.FullName -Algorithm SHA256).Hash
+                    if ($copiedHash -ne $sourceHash) {
+                        Remove-Item -LiteralPath $destinationItemPath -Force
+                        throw "Migration copy verification failed: $($sourceItem.FullName)"
+                    }
+                    [IO.File]::SetAttributes($sourceItem.FullName, [IO.FileAttributes]::Normal)
+                    [IO.File]::Delete($sourceItem.FullName)
+                    [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
                 }
-                [IO.File]::SetAttributes($sourceItem.FullName, [IO.FileAttributes]::Normal)
-                [IO.File]::Delete($sourceItem.FullName)
-                [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
+                catch [IO.IOException], [UnauthorizedAccessException] {
+                    if (-not $ResolveCacheConflicts) {
+                        throw
+                    }
+                    if (Test-Path -LiteralPath $destinationItemPath) {
+                        Remove-Item -LiteralPath $destinationItemPath -Force
+                    }
+                    Write-Warning "Cache file is in use and will be retried later: $($sourceItem.FullName)"
+                }
             }
             continue
         }
@@ -301,20 +433,52 @@ function Move-DirectoryContents {
             Move-DirectoryContents `
                 -Source $sourceItem.FullName `
                 -Destination $destinationItem.FullName `
-                -SuppressSummary
+                -SuppressSummary `
+                -MigrationSourceRoot $MigrationSourceRoot `
+                -MigrationDestinationRoot $MigrationDestinationRoot `
+                -ResolveCacheConflicts:$ResolveCacheConflicts
             continue
         }
 
+        if ($ResolveCacheConflicts) {
+            try {
+                if ($sourceItem.LastWriteTimeUtc -gt $destinationItem.LastWriteTimeUtc) {
+                    $sourceHash = (Get-FileHash -LiteralPath $sourceItem.FullName -Algorithm SHA256).Hash
+                    [IO.File]::Copy($sourceItem.FullName, $destinationItem.FullName, $true)
+                    $copiedHash = (Get-FileHash -LiteralPath $destinationItem.FullName -Algorithm SHA256).Hash
+                    if ($copiedHash -ne $sourceHash) {
+                        throw "Migration copy verification failed: $($sourceItem.FullName)"
+                    }
+                    [IO.File]::SetAttributes($destinationItem.FullName, $sourceAttributes)
+                }
+                [IO.File]::SetAttributes($sourceItem.FullName, [IO.FileAttributes]::Normal)
+                [IO.File]::Delete($sourceItem.FullName)
+            }
+            catch [IO.IOException], [UnauthorizedAccessException] {
+                Write-Warning "Cache file is in use and will be retried later: $($sourceItem.FullName)"
+            }
+            continue
+        }
         [IO.File]::SetAttributes($sourceItem.FullName, [IO.FileAttributes]::Normal)
         [IO.File]::Delete($sourceItem.FullName)
     }
 
-    if (@(Get-ChildItem -LiteralPath $sourcePath -Force).Count -eq 0) {
+    $remainingItems = @(
+        Get-MigrationItems -Path $sourcePath |
+            Where-Object { $ExcludeNames -notcontains $_.Name }
+    )
+    if ((Test-Path -LiteralPath $sourcePath -PathType Container) -and
+        @(Get-MigrationItems -Path $sourcePath).Count -eq 0) {
         [IO.File]::SetAttributes($sourcePath, [IO.FileAttributes]::Directory)
         [IO.Directory]::Delete($sourcePath)
     }
     if (-not $SuppressSummary) {
-        Write-Host "Migrated cache contents from $sourcePath to $destinationPath"
+        if ($remainingItems.Count -eq 0) {
+            Write-Host "Migrated cache contents from $sourcePath to $destinationPath"
+        }
+        else {
+            Write-Warning "$($remainingItems.Count) cache item(s) remain at $sourcePath and will be retried later."
+        }
     }
 }
 
@@ -325,7 +489,9 @@ function Apply-EnvironmentRedirect {
 
         [switch]$MigrateExisting,
 
-        [string[]]$MigrationExcludeNames = @()
+        [string[]]$MigrationExcludeNames = @(),
+
+        [switch]$ResolveCacheConflicts
     )
 
     if ($MigrateExisting -and
@@ -341,7 +507,8 @@ function Apply-EnvironmentRedirect {
             Move-DirectoryContents `
                 -Source $Plan.PreviousValue `
                 -Destination $Plan.EffectiveValue `
-                -ExcludeNames $MigrationExcludeNames
+                -ExcludeNames $MigrationExcludeNames `
+                -ResolveCacheConflicts:$ResolveCacheConflicts
         }
     }
 
@@ -426,6 +593,103 @@ function Get-InstalledRustupToolchains {
     )
 }
 
+function Resolve-ReparseTarget {
+    param(
+        [Parameter(Mandatory)]
+        [IO.FileSystemInfo]$Item
+    )
+
+    $targets = @($Item.Target | Where-Object { $_ })
+    if ($targets.Count -ne 1) {
+        throw "Migration cannot safely resolve reparse point: $($Item.FullName)"
+    }
+
+    $rawTarget = "$($targets[0])"
+    $resolvedTarget = if ([IO.Path]::IsPathRooted($rawTarget)) {
+        [IO.Path]::GetFullPath($rawTarget)
+    }
+    else {
+        $itemParent = if ($Item.PSIsContainer) {
+            $Item.Parent.FullName
+        }
+        else {
+            $Item.DirectoryName
+        }
+        [IO.Path]::GetFullPath((Join-Path $itemParent $rawTarget))
+    }
+    return [PSCustomObject]@{
+        Raw = $rawTarget
+        Resolved = $resolvedTarget.TrimEnd('\')
+    }
+}
+
+function Select-RustupDefaultCandidate {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [string[]]$Toolchains
+    )
+
+    $toolchainNames = @(
+        $Toolchains |
+            ForEach-Object { ($_ -replace '\s+\([^)]*\)\s*$', '').Trim() } |
+            Where-Object { $_ }
+    )
+    $stableToolchains = @($toolchainNames | Where-Object { $_ -match '^stable(?:-|$)' })
+    if ($stableToolchains.Count -eq 1) {
+        return $stableToolchains[0]
+    }
+    if ($toolchainNames.Count -eq 1) {
+        return $toolchainNames[0]
+    }
+    return $null
+}
+
+function Get-MappedReparseTarget {
+    param(
+        [Parameter(Mandatory)]
+        [IO.FileSystemInfo]$Item,
+
+        [Parameter(Mandatory)]
+        [string]$SourceRoot,
+
+        [Parameter(Mandatory)]
+        [string]$DestinationRoot
+    )
+
+    $target = Resolve-ReparseTarget -Item $Item
+    $sourceRootPath = [IO.Path]::GetFullPath($SourceRoot).TrimEnd('\')
+    $targetPath = $target.Resolved
+    $sourcePrefix = "$sourceRootPath\"
+    if (-not $targetPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Migration refuses an external reparse-point target: $($Item.FullName) -> $targetPath"
+    }
+
+    $relativeTarget = $targetPath.Substring($sourcePrefix.Length)
+    return [PSCustomObject]@{
+        Source = $targetPath
+        Destination = Join-Path $DestinationRoot $relativeTarget
+        Raw = $target.Raw
+    }
+}
+
+function Get-MigrationItems {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return @()
+    }
+    try {
+        return @(Get-ChildItem -LiteralPath $Path -Force)
+    }
+    catch [Management.Automation.ItemNotFoundException] {
+        return @()
+    }
+}
+
 function Assert-RustupConfiguration {
     param(
         [Parameter(Mandatory)]
@@ -446,10 +710,24 @@ function Assert-RustupConfiguration {
     $activeOutput = @(& $RustupCommand show active-toolchain 2>&1)
     if ($LASTEXITCODE -ne 0 -or
         ($activeOutput -join [Environment]::NewLine) -match 'no active toolchain') {
-        throw @"
-Rustup found installed toolchains in '$env:RUSTUP_HOME' but no active default.
-The script will not download or select a toolchain automatically. Run 'rustup default <installed-toolchain>' after reviewing 'rustup toolchain list'.
+        $defaultCandidate = Select-RustupDefaultCandidate -Toolchains $toolchains
+        if (-not $defaultCandidate) {
+            throw @"
+Rustup found installed toolchains in '$env:RUSTUP_HOME' but no unambiguous default.
+Run 'rustup default <installed-toolchain>' after reviewing 'rustup toolchain list'.
 "@
+        }
+
+        $defaultOutput = @(& $RustupCommand default $defaultCandidate 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not restore installed Rustup default '$defaultCandidate': $($defaultOutput -join [Environment]::NewLine)"
+        }
+        Write-Host "Restored Rustup default to already-installed toolchain: $defaultCandidate"
+        $activeOutput = @(& $RustupCommand show active-toolchain 2>&1)
+        if ($LASTEXITCODE -ne 0 -or
+            ($activeOutput -join [Environment]::NewLine) -match 'no active toolchain') {
+            throw "Rustup still has no active default after selecting '$defaultCandidate'."
+        }
     }
 
     Write-Host "Rustup configuration verified: $(($activeOutput -join ' ').Trim())"
@@ -574,7 +852,10 @@ function Set-MavenLocalRepository {
     if ($MigrateExisting -and
         -not [string]::IsNullOrWhiteSpace($previousRepositoryPath) -and
         [IO.Path]::IsPathRooted($previousRepositoryPath)) {
-        Move-DirectoryContents -Source $previousRepositoryPath -Destination $RepositoryPath
+        Move-DirectoryContents `
+            -Source $previousRepositoryPath `
+            -Destination $RepositoryPath `
+            -ResolveCacheConflicts
     }
 
     if ($localRepositories.Count -eq 1) {
@@ -696,14 +977,16 @@ foreach ($entry in $cacheDirectories.GetEnumerator()) {
     Apply-EnvironmentRedirect `
         -Plan $plan `
         -MigrateExisting:$MigrateExisting `
-        -MigrationExcludeNames $migrationExcludeNames
+        -MigrationExcludeNames $migrationExcludeNames `
+        -ResolveCacheConflicts
     if ($MigrateExisting -and $defaultMigrationSources.ContainsKey($entry.Key)) {
         foreach ($source in $defaultMigrationSources[$entry.Key]) {
             if ($source.TrimEnd('\') -ne "$($plan.PreviousValue)".TrimEnd('\')) {
                 Move-DirectoryContents `
                     -Source $source `
                     -Destination $plan.EffectiveValue `
-                    -ExcludeNames $migrationExcludeNames
+                    -ExcludeNames $migrationExcludeNames `
+                    -ResolveCacheConflicts
             }
         }
     }
@@ -718,14 +1001,20 @@ if ($yarn) {
         -MachineValue ([Environment]::GetEnvironmentVariable('YARN_CACHE_FOLDER', 'Machine')) `
         -DesiredValue (Join-Path $CacheRoot '.yarn') `
         -SystemDriveRoot $systemDriveRoot
-    Apply-EnvironmentRedirect -Plan $yarnPlan -MigrateExisting:$MigrateExisting
+    Apply-EnvironmentRedirect `
+        -Plan $yarnPlan `
+        -MigrateExisting:$MigrateExisting `
+        -ResolveCacheConflicts
     if ($MigrateExisting) {
         foreach ($source in @(
             (Join-Path $env:LOCALAPPDATA 'Yarn\Cache'),
             (Join-Path $env:LOCALAPPDATA 'Yarn\Berry\cache')
         )) {
             if ($source.TrimEnd('\') -ne "$($yarnPlan.PreviousValue)".TrimEnd('\')) {
-                Move-DirectoryContents -Source $source -Destination $yarnPlan.EffectiveValue
+                Move-DirectoryContents `
+                    -Source $source `
+                    -Destination $yarnPlan.EffectiveValue `
+                    -ResolveCacheConflicts
             }
         }
     }
@@ -776,7 +1065,10 @@ if ($composer) {
         }
         $previousComposerCache = ($previousComposerCache -join '').Trim()
         if ([IO.Path]::IsPathRooted($previousComposerCache)) {
-            Move-DirectoryContents -Source $previousComposerCache -Destination $composerCache
+            Move-DirectoryContents `
+                -Source $previousComposerCache `
+                -Destination $composerCache `
+                -ResolveCacheConflicts
         }
         else {
             Write-Warning 'Existing Composer contents were not migrated because its cache path is not absolute.'
