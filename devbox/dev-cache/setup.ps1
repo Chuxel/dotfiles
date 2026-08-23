@@ -939,9 +939,11 @@ $cacheDirectories = [ordered]@{
     NUGET_PLUGINS_CACHE_PATH     = '.nuget\plugins-cache'
     npm_config_cache             = '.npm'
     npm_config_prefix            = '.npm-global'
+    YARN_CACHE_FOLDER            = '.yarn'
     COREPACK_HOME                = 'corepack'
     BUN_INSTALL_CACHE_DIR        = 'bun'
     DENO_DIR                     = 'deno'
+    COMPOSER_CACHE_DIR           = 'composer'
     PIP_CACHE_DIR                = 'pip'
     POETRY_CACHE_DIR             = 'poetry'
     UV_CACHE_DIR                 = 'uv'
@@ -965,9 +967,14 @@ $defaultMigrationSources = @{
     NUGET_PLUGINS_CACHE_PATH   = @((Join-Path $env:LOCALAPPDATA 'NuGet\plugins-cache'))
     npm_config_cache           = @((Join-Path $env:LOCALAPPDATA 'npm-cache'))
     npm_config_prefix          = @((Join-Path $env:APPDATA 'npm'))
+    YARN_CACHE_FOLDER          = @(
+        (Join-Path $env:LOCALAPPDATA 'Yarn\Cache'),
+        (Join-Path $env:LOCALAPPDATA 'Yarn\Berry\cache')
+    )
     COREPACK_HOME              = @((Join-Path $env:LOCALAPPDATA 'node\corepack'))
     BUN_INSTALL_CACHE_DIR      = @((Join-Path $HOME '.bun\install\cache'))
     DENO_DIR                   = @((Join-Path $env:LOCALAPPDATA 'deno'))
+    COMPOSER_CACHE_DIR         = @((Join-Path $env:LOCALAPPDATA 'Composer'))
     PIP_CACHE_DIR              = @((Join-Path $env:LOCALAPPDATA 'pip\Cache'))
     POETRY_CACHE_DIR           = @((Join-Path $env:LOCALAPPDATA 'pypoetry\Cache'))
     UV_CACHE_DIR               = @((Join-Path $env:LOCALAPPDATA 'uv\cache'))
@@ -1019,36 +1026,6 @@ foreach ($entry in $cacheDirectories.GetEnumerator()) {
     $effectiveValues[$entry.Key] = $plan.EffectiveValue
 }
 
-$yarn = Get-Command 'yarn' -ErrorAction SilentlyContinue
-if ($yarn) {
-    $yarnPlan = Resolve-EnvironmentRedirect `
-        -Name 'YARN_CACHE_FOLDER' `
-        -UserValue ([Environment]::GetEnvironmentVariable('YARN_CACHE_FOLDER', 'User')) `
-        -MachineValue ([Environment]::GetEnvironmentVariable('YARN_CACHE_FOLDER', 'Machine')) `
-        -DesiredValue (Join-Path $CacheRoot '.yarn') `
-        -SystemDriveRoot $systemDriveRoot
-    Apply-EnvironmentRedirect `
-        -Plan $yarnPlan `
-        -MigrateExisting:$MigrateExisting `
-        -ResolveCacheConflicts
-    if ($MigrateExisting) {
-        foreach ($source in @(
-            (Join-Path $env:LOCALAPPDATA 'Yarn\Cache'),
-            (Join-Path $env:LOCALAPPDATA 'Yarn\Berry\cache')
-        )) {
-            if ($source.TrimEnd('\') -ne "$($yarnPlan.PreviousValue)".TrimEnd('\')) {
-                Move-DirectoryContents `
-                    -Source $source `
-                    -Destination $yarnPlan.EffectiveValue `
-                    -ResolveCacheConflicts
-            }
-        }
-    }
-}
-else {
-    Write-Warning 'Yarn is not installed; skipped Yarn cache configuration.'
-}
-
 $cargoInstallRoot = Join-Path $HOME '.cargo'
 $cargoBin = Join-Path $cargoInstallRoot 'bin'
 New-Item -ItemType Directory -Path $cargoBin -Force | Out-Null
@@ -1083,10 +1060,18 @@ else {
 
 $composer = Get-Command 'composer' -ErrorAction SilentlyContinue
 if ($composer) {
-    $composerCache = Join-Path $CacheRoot 'composer'
+    $composerCache = $effectiveValues['COMPOSER_CACHE_DIR']
     if ($MigrateExisting) {
-        $previousComposerCache = @(& $composer.Source config --global cache-dir 2>&1)
-        if ($LASTEXITCODE -ne 0) {
+        $composerCacheEnvironment = $env:COMPOSER_CACHE_DIR
+        Remove-Item -LiteralPath 'Env:COMPOSER_CACHE_DIR'
+        try {
+            $previousComposerCache = @(& $composer.Source config --global cache-dir 2>&1)
+            $composerConfigExitCode = $LASTEXITCODE
+        }
+        finally {
+            Set-Item -LiteralPath 'Env:COMPOSER_CACHE_DIR' -Value $composerCacheEnvironment
+        }
+        if ($composerConfigExitCode -ne 0) {
             throw "Could not determine the existing Composer cache directory: $($previousComposerCache -join [Environment]::NewLine)"
         }
         $previousComposerCache = ($previousComposerCache -join '').Trim()
@@ -1103,9 +1088,6 @@ if ($composer) {
     New-Item -ItemType Directory -Path $composerCache -Force | Out-Null
     Invoke-ExternalCommand -Command $composer.Source -Arguments @(
         'config', '--global', 'cache-dir', $composerCache)
-}
-else {
-    Write-Warning 'Composer is not installed; skipped Composer cache configuration.'
 }
 
 New-Item -ItemType Directory -Path (Join-Path $CacheRoot 'maven') -Force | Out-Null

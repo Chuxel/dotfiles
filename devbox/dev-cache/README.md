@@ -68,19 +68,19 @@ On an unconfigured machine, the script creates only the directories needed for m
 | Ecosystem | Fallback variables |
 | --- | --- |
 | Windows and NuGet | `TEMP`, `TMP`, `NUGET_PACKAGES`, `NUGET_HTTP_CACHE_PATH`, `NUGET_PLUGINS_CACHE_PATH` |
-| npm and JavaScript | `npm_config_cache`, `npm_config_prefix`, `COREPACK_HOME`, `BUN_INSTALL_CACHE_DIR`, `DENO_DIR` |
+| npm and JavaScript | `npm_config_cache`, `npm_config_prefix`, `YARN_CACHE_FOLDER`, `COREPACK_HOME`, `BUN_INSTALL_CACHE_DIR`, `DENO_DIR` |
 | Browser tooling | `PLAYWRIGHT_BROWSERS_PATH`, `CYPRESS_CACHE_FOLDER`, `ELECTRON_CACHE`, `ELECTRON_BUILDER_CACHE` |
-| Python | `PIP_CACHE_DIR`, `POETRY_CACHE_DIR`, `UV_CACHE_DIR` |
+| PHP and Python | `COMPOSER_CACHE_DIR`, `PIP_CACHE_DIR`, `POETRY_CACHE_DIR`, `UV_CACHE_DIR` |
 | Go, Java, and Rust | `GOCACHE`, `GOMODCACHE`, `GRADLE_USER_HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `SCCACHE_DIR` |
 | Native dependencies | `VCPKG_DEFAULT_BINARY_CACHE`, `VCPKG_DOWNLOADS` |
 
 NuGet fallbacks use `<CacheRoot>\.nuget\packages`, `<CacheRoot>\.nuget\v3-cache`, and `<CacheRoot>\.nuget\plugins-cache`. npm uses `<CacheRoot>\.npm` and `<CacheRoot>\.npm-global`; these match the audited `Q:\.tools` layout. The effective npm global prefix is added to `PATH` only when no equivalent User or Machine entry exists.
 
-When Yarn is installed and its effective cache is missing or `C:`-based, `YARN_CACHE_FOLDER` is set to `<CacheRoot>\.yarn`. If Yarn is absent, the script reports it as skipped and creates no Yarn directory. An existing non-`C:` Yarn setting remains untouched.
+When its effective cache is missing or `C:`-based, Yarn uses `<CacheRoot>\.yarn` and Composer uses `<CacheRoot>\composer`. These environment redirects are configured even when the corresponding command is not installed, so later installations inherit the relocated caches. Existing non-`C:` settings remain untouched.
 
 Go's `GOBIN` remains at its default user-profile location. `CARGO_INSTALL_ROOT` keeps `cargo install` executables under `~\.cargo\bin` on `C:`, while Cargo caches and Rust toolchains use their selected relocated homes. `GOPATH` and project-local Rust `target` directories are unchanged.
 
-When `sccache` is installed, the script sets `RUSTC_WRAPPER=sccache`. Composer is configured through its command only when installed. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
+When `sccache` is installed, the script sets `RUSTC_WRAPPER=sccache`. When Composer is installed, its global configuration is also synchronized with the effective `COMPOSER_CACHE_DIR`. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
 
 When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. If migration leaves no default, setup selects the exact already-installed `stable-*` toolchain when there is one, or the sole installed toolchain. Using the full installed name prevents a download. Ambiguous toolchain sets without one stable candidate still stop for explicit user choice.
 

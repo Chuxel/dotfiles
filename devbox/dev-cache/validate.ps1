@@ -166,6 +166,15 @@ if (-not $failed) {
     Assert-True ($setupContent -notmatch 'store-dir') 'setup.ps1 must not configure pnpm store-dir.'
     Assert-True ($setupContent -notmatch 'Join-Path\s+\$CacheRoot\s+[''"]pnpm[''"]') 'setup.ps1 must not create a pnpm cache directory.'
     Assert-True ($setupContent -notmatch 'rustup\s+default\s+stable') 'setup.ps1 must not download or select a Rust toolchain automatically.'
+    Assert-True `
+        ($setupContent -match '(?m)^\s*YARN_CACHE_FOLDER\s*=\s*[''"]\.yarn[''"]') `
+        'Yarn must be configured even when its command is not installed.'
+    Assert-True `
+        ($setupContent -match '(?m)^\s*COMPOSER_CACHE_DIR\s*=\s*[''"]composer[''"]') `
+        'Composer must be configured even when its command is not installed.'
+    Assert-True `
+        ($setupContent -notmatch 'skipped (Yarn|Composer) cache configuration') `
+        'Supported cache locations must not be skipped when their commands are absent.'
 
     $rustToolchains = @(
         Get-InstalledRustupToolchains -Output @(
