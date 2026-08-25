@@ -331,10 +331,19 @@ function Move-DirectoryContents {
         $sourceIsReparsePoint =
             ($sourceAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
         if ($sourceIsReparsePoint) {
-            $mappedTarget = Get-MappedReparseTarget `
-                -Item $sourceItem `
-                -SourceRoot $MigrationSourceRoot `
-                -DestinationRoot $MigrationDestinationRoot
+            try {
+                $mappedTarget = Get-MappedReparseTarget `
+                    -Item $sourceItem `
+                    -SourceRoot $MigrationSourceRoot `
+                    -DestinationRoot $MigrationDestinationRoot
+            }
+            catch {
+                if (-not $ResolveCacheConflicts) {
+                    throw
+                }
+                Write-Warning "Cache reparse point was left in place: $($sourceItem.FullName) ($($_.Exception.Message))"
+                continue
+            }
             if (-not $sourceItem.PSIsContainer) {
                 if ($sourceItem.LinkType -ne 'SymbolicLink') {
                     throw "Migration refuses an unsupported file reparse point: $($sourceItem.FullName)"

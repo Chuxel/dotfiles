@@ -422,6 +422,13 @@ if (-not $failed) {
             $externalRejected = $true
         }
         Assert-True $externalRejected 'External reparse-point targets must be rejected.'
+        Move-DirectoryContents `
+            -Source $externalSource `
+            -Destination $externalDestination `
+            -ResolveCacheConflicts
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $externalSource 'external')) `
+            'Cache migration must leave external reparse points in place.'
 
         $externalFileTarget = Join-Path $migrationTestRoot 'external-file-target.txt'
         $externalFileSource = Join-Path $migrationTestRoot 'external-file-source'
@@ -440,6 +447,13 @@ if (-not $failed) {
             $externalFileRejected = $true
         }
         Assert-True $externalFileRejected 'External file symbolic-link targets must be rejected.'
+        Move-DirectoryContents `
+            -Source $externalFileSource `
+            -Destination $externalFileDestination `
+            -ResolveCacheConflicts
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $externalFileSource 'external.txt')) `
+            'Cache migration must leave external file symbolic links in place.'
     }
     finally {
         if (Test-Path -LiteralPath $migrationTestRoot) {
