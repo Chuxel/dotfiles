@@ -407,6 +407,7 @@ $gitConfigPath = Join-Path $HOME '.gitconfig'
 if ((-not (Test-Path $gitConfigPath)) -or $Overwrite) {
     git config --global user.email 'chuck_lantz@hotmail.com'
     git config --global user.name 'Chuck Lantz'
+    git config --global core.longpaths true
 }
 
 # Get rid of annoying git message on pull behaviors
