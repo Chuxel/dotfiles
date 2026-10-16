@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Creates per-tool cache directories beneath CacheRoot, persists the corresponding
-    user environment variables, and configures installed package managers. Existing
-    cache contents are not moved; this script only configures future cache use.
+    user environment variables, and configures installed package managers. Installs
+    and activates Mr Boxington for Rust builds. Existing tool caches are migrated
+    by default, except for Mr Boxington's managed build data.
 
 .PARAMETER CacheRoot
     Absolute filesystem path that will contain the developer caches.
@@ -595,12 +596,22 @@ function Test-PathListContains {
 function Add-ToEffectivePath {
     param(
         [Parameter(Mandatory)]
-        [string]$Directory
+        [string]$Directory,
+
+        [switch]$Prepend
     )
 
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    if (Test-PathListContains -PathValues @($userPath, $machinePath) -Directory $Directory) {
+    if ($Prepend -and
+        -not (Test-PathListContains -PathValues @($machinePath) -Directory $Directory)) {
+        $updatedPath = Get-PrependedPath -PathValue $userPath -Directory $Directory
+        if ($updatedPath -ne $userPath) {
+            [Environment]::SetEnvironmentVariable('Path', $updatedPath, 'User')
+            Write-Host "Prepended directory to the user PATH: $Directory"
+        }
+    }
+    elseif (Test-PathListContains -PathValues @($userPath, $machinePath) -Directory $Directory) {
         Write-Host "Directory is already on the effective persistent PATH: $Directory"
     }
     else {
@@ -609,9 +620,222 @@ function Add-ToEffectivePath {
         Write-Host "Added directory to the user PATH: $Directory"
     }
 
-    if (-not (Test-PathListContains -PathValues @($env:Path) -Directory $Directory)) {
+    if ($Prepend) {
+        $env:Path = Get-PrependedPath -PathValue $env:Path -Directory $Directory
+    }
+    elseif (-not (Test-PathListContains -PathValues @($env:Path) -Directory $Directory)) {
         $env:Path = (@($env:Path, $Directory) | Where-Object { $_ }) -join ';'
     }
+}
+
+function Get-PrependedPath {
+    param(
+        [AllowNull()]
+        [string]$PathValue,
+
+        [Parameter(Mandatory)]
+        [string]$Directory
+    )
+
+    $entries = @($PathValue -split ';' | Where-Object {
+        $_ -and -not (Test-PathListContains -PathValues @($_) -Directory $Directory)
+    })
+    return (@($Directory) + $entries) -join ';'
+}
+
+function Install-MrBoxington {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BinDirectory
+    )
+
+    $existing = Get-Command 'mbx' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($existing) {
+        return $existing.Source
+    }
+    $executable = Join-Path $BinDirectory 'mbx.exe'
+    if (Test-Path -LiteralPath $executable -PathType Leaf) {
+        return $executable
+    }
+
+    $architecture = if ($env:PROCESSOR_ARCHITEW6432) {
+        $env:PROCESSOR_ARCHITEW6432
+    }
+    else {
+        $env:PROCESSOR_ARCHITECTURE
+    }
+    $target = switch ($architecture) {
+        'AMD64' { 'x86_64-pc-windows-msvc' }
+        'ARM64' { 'aarch64-pc-windows-msvc' }
+        default { throw "Mr Boxington has no Windows release for architecture '$architecture'." }
+    }
+    $archiveName = "mbx-$target.zip"
+    $releaseUrl = 'https://github.com/jdx/mr-boxington/releases/latest/download'
+    $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "dev-cache-mbx-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+    try {
+        $archivePath = Join-Path $temporaryDirectory $archiveName
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/$archiveName" -OutFile $archivePath
+        $checksumsPath = Join-Path $temporaryDirectory 'SHA256SUMS'
+        Invoke-WebRequest -UseBasicParsing -Uri "$releaseUrl/SHA256SUMS" -OutFile $checksumsPath
+        $checksums = [IO.File]::ReadAllText($checksumsPath)
+        $pattern = '(?m)^([a-fA-F0-9]{64})[ \t]+\*?' + [regex]::Escape($archiveName) + '\r?$'
+        $checksumMatches = [regex]::Matches([string]$checksums, $pattern)
+        if ($checksumMatches.Count -ne 1 -or
+            (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -ne $checksumMatches[0].Groups[1].Value) {
+            throw "Mr Boxington archive checksum verification failed: $archiveName"
+        }
+        $extractDirectory = Join-Path $temporaryDirectory 'extracted'
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory
+        $downloadedExecutable = Join-Path $extractDirectory 'mbx.exe'
+        if (-not (Test-Path -LiteralPath $downloadedExecutable -PathType Leaf)) {
+            throw "Mr Boxington archive does not contain mbx.exe: $archiveName"
+        }
+        New-Item -ItemType Directory -Path $BinDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $downloadedExecutable -Destination $executable
+        Write-Host "Installed Mr Boxington at $executable"
+        return $executable
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+    }
+}
+
+function Resolve-MrBoxingtonCache {
+    param(
+        [AllowNull()]
+        [string]$UserValue,
+
+        [AllowNull()]
+        [string]$MachineValue,
+
+        [Parameter(Mandatory)]
+        [string]$ConfiguredCache,
+
+        [Parameter(Mandatory)]
+        [string]$DesiredValue,
+
+        [Parameter(Mandatory)]
+        [string]$SystemDriveRoot
+    )
+
+    if ($UserValue -or $MachineValue) {
+        return Resolve-EnvironmentRedirect -Name 'MBX_CACHE_DIR' `
+            -UserValue $UserValue -MachineValue $MachineValue `
+            -DesiredValue $DesiredValue -SystemDriveRoot $SystemDriveRoot
+    }
+    $configuredRoot = Get-PathDriveRoot -Path $ConfiguredCache
+    if ($null -ne $configuredRoot -and $configuredRoot -ne $SystemDriveRoot) {
+        return [PSCustomObject]@{
+            Name = 'MBX_CACHE_DIR'; Action = 'PreserveConfig'; EffectiveValue = $ConfiguredCache
+        }
+    }
+    return [PSCustomObject]@{
+        Name = 'MBX_CACHE_DIR'; Action = 'SetConfig'; EffectiveValue = $DesiredValue
+    }
+}
+
+function Set-MrBoxingtonCache {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Command,
+
+        [Parameter(Mandatory)]
+        [string]$CacheRoot,
+
+        [Parameter(Mandatory)]
+        [string]$SystemDriveRoot
+    )
+
+    # Read the file setting without a stale process-only environment override.
+    $previousProcessValue = [Environment]::GetEnvironmentVariable('MBX_CACHE_DIR', 'Process')
+    Remove-Item -LiteralPath 'Env:MBX_CACHE_DIR' -ErrorAction SilentlyContinue
+    try {
+        $output = @(& $Command settings get cache_dir 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not read Mr Boxington cache configuration: $($output -join [Environment]::NewLine)"
+        }
+        $configuredCache = ($output -join '').Trim()
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('MBX_CACHE_DIR', $previousProcessValue, 'Process')
+    }
+
+    $plan = Resolve-MrBoxingtonCache `
+        -UserValue ([Environment]::GetEnvironmentVariable('MBX_CACHE_DIR', 'User')) `
+        -MachineValue ([Environment]::GetEnvironmentVariable('MBX_CACHE_DIR', 'Machine')) `
+        -ConfiguredCache $configuredCache -DesiredValue (Join-Path $CacheRoot 'mbx') `
+        -SystemDriveRoot $SystemDriveRoot
+    $selectedCache = $plan.EffectiveValue
+    switch ($plan.Action) {
+        'PreserveConfig' {
+            Write-Host "Preserved Mr Boxington cache configuration: $selectedCache"
+            $env:MBX_CACHE_DIR = $selectedCache
+        }
+        'SetConfig' {
+            Invoke-ExternalCommand -Command $Command -Arguments @('settings', 'set', 'cache_dir', $selectedCache)
+            $env:MBX_CACHE_DIR = $selectedCache
+        }
+        default {
+            Apply-EnvironmentRedirect -Plan $plan
+        }
+    }
+    New-Item -ItemType Directory -Path $selectedCache -Force | Out-Null
+    if ($configuredCache -ne $selectedCache) {
+        Write-Warning "Mr Boxington data at '$configuredCache' was not moved. Existing managed targets must be relocated by mbx, not bulk-migrated."
+    }
+    Write-Host "Mr Boxington build cache: $selectedCache"
+}
+
+function Enable-MrBoxington {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Command
+    )
+
+    foreach ($name in @('RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER')) {
+        $userValue = [Environment]::GetEnvironmentVariable($name, 'User')
+        $machineValue = [Environment]::GetEnvironmentVariable($name, 'Machine')
+        $processValue = [Environment]::GetEnvironmentVariable($name, 'Process')
+        if ($name -eq 'RUSTC_WRAPPER' -and $userValue -in @('sccache', 'sccache.exe')) {
+            [Environment]::SetEnvironmentVariable($name, $null, 'User')
+            $userValue = $null
+            Write-Host 'Removed the legacy user RUSTC_WRAPPER=sccache setting.'
+        }
+        if ($name -eq 'RUSTC_WRAPPER' -and $processValue -in @('sccache', 'sccache.exe') -and
+            -not $userValue -and -not $machineValue) {
+            Remove-Item -LiteralPath "Env:$name"
+            $processValue = $null
+        }
+        if ($userValue -or $machineValue -or $processValue) {
+            throw "$name is configured. Remove the conflicting compiler wrapper before enabling Mr Boxington; mbx cannot cache those compilations."
+        }
+    }
+
+    Invoke-ExternalCommand -Command $Command -Arguments @('--version')
+    Invoke-ExternalCommand -Command $Command -Arguments @('setup', '--yes')
+    $shimDirectory = Join-Path $env:LOCALAPPDATA 'mbx\bin'
+    if (-not (Test-Path -LiteralPath (Join-Path $shimDirectory 'cargo.exe') -PathType Leaf)) {
+        throw "Mr Boxington did not create its Cargo shim at $shimDirectory."
+    }
+    Add-ToEffectivePath -Directory $shimDirectory -Prepend
+    if ((Get-Command 'cargo' -ErrorAction Stop).Source -ne (Join-Path $shimDirectory 'cargo.exe')) {
+        throw 'Cargo does not resolve to the Mr Boxington shim. Remove the conflicting Cargo alias or function.'
+    }
+    $currentPath = $env:Path
+    try {
+        $env:Path = [Environment]::ExpandEnvironmentVariables(
+            @([Environment]::GetEnvironmentVariable('Path', 'Machine'),
+                [Environment]::GetEnvironmentVariable('Path', 'User')) -join ';')
+        if ((Get-Command 'cargo' -ErrorAction Stop).Source -ne (Join-Path $shimDirectory 'cargo.exe')) {
+            throw 'The persistent PATH selects another Cargo before the Mr Boxington shim. Reorder the conflicting Machine PATH entry.'
+        }
+    }
+    finally {
+        $env:Path = $currentPath
+    }
+    Invoke-ExternalCommand -Command $Command -Arguments @('setup', '--status')
 }
 
 function Get-InstalledRustupToolchains {
@@ -1042,15 +1266,6 @@ Set-UserEnvironmentVariable -Name 'CARGO_INSTALL_ROOT' -Value $cargoInstallRoot
 Add-ToEffectivePath -Directory $effectiveValues['npm_config_prefix']
 Add-ToEffectivePath -Directory $cargoBin
 
-$sccache = Get-Command 'sccache' -ErrorAction SilentlyContinue
-if ($sccache) {
-    Set-UserEnvironmentVariable -Name 'RUSTC_WRAPPER' -Value 'sccache'
-    Write-Host 'Rust compilation will use sccache.'
-}
-else {
-    Write-Warning 'sccache is not installed; configured its cache directory but skipped the Rust compiler wrapper.'
-}
-
 $rustup = Get-Command 'rustup' -ErrorAction SilentlyContinue
 if ($rustup) {
     Assert-RustupConfiguration -RustupCommand $rustup.Source
@@ -1058,6 +1273,11 @@ if ($rustup) {
 else {
     Write-Warning 'rustup is not installed; Rust toolchain verification was skipped.'
 }
+
+$mbxCommand = Install-MrBoxington -BinDirectory $cargoBin
+Add-ToEffectivePath -Directory (Split-Path -Parent $mbxCommand)
+Set-MrBoxingtonCache -Command $mbxCommand -CacheRoot $CacheRoot -SystemDriveRoot $systemDriveRoot
+Enable-MrBoxington -Command $mbxCommand
 
 $pnpm = Get-Command 'pnpm' -ErrorAction SilentlyContinue
 if ($pnpm) {

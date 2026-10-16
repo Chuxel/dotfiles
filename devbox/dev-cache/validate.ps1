@@ -70,6 +70,9 @@ if (-not $failed) {
         'Get-PathDriveRoot',
         'Resolve-EnvironmentRedirect',
         'Test-PathListContains',
+        'Get-PrependedPath',
+        'Install-MrBoxington',
+        'Resolve-MrBoxingtonCache',
         'Get-InstalledRustupToolchains',
         'Select-RustupDefaultCandidate',
         'Resolve-ReparseTarget',
@@ -143,6 +146,108 @@ if (-not $failed) {
         (-not (Test-PathListContains -PathValues @($null, $machinePath) -Directory 'D:\.tools\.npm-global')) `
         'A missing PATH directory must be detected.'
 
+    $shimDirectory = 'C:\Users\Test\AppData\Local\mbx\bin'
+    $cargoPath = 'C:\Users\Test\.cargo\bin'
+    $prependedPath = Get-PrependedPath `
+        -PathValue "$cargoPath;`"$shimDirectory\`";C:\Windows;$shimDirectory" `
+        -Directory $shimDirectory
+    Assert-Equal $prependedPath "$shimDirectory;$cargoPath;C:\Windows" `
+        'The mbx Cargo shim must precede Rustup without duplicate or quoted equivalents.'
+    Assert-Equal (Get-PrependedPath -PathValue $prependedPath -Directory $shimDirectory) `
+        $prependedPath 'Prepending the Cargo shim must be idempotent.'
+    Assert-Equal (Get-PrependedPath -PathValue $null -Directory $shimDirectory) `
+        $shimDirectory 'An empty PATH must accept the Cargo shim.'
+
+    $mbxPlan = Resolve-MrBoxingtonCache -UserValue $null -MachineValue $null `
+        -ConfiguredCache 'C:\Users\Test\AppData\Local\mbx' `
+        -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
+    Assert-Equal $mbxPlan.Action 'SetConfig' 'The default mbx cache must be redirected persistently.'
+    Assert-Equal $mbxPlan.EffectiveValue 'D:\.tools\mbx' 'mbx must use the requested fallback drive.'
+    $mbxPlan = Resolve-MrBoxingtonCache -UserValue $null -MachineValue $null `
+        -ConfiguredCache 'E:\.tools\mbx' `
+        -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
+    Assert-Equal $mbxPlan.Action 'PreserveConfig' 'Existing non-system mbx file settings must be preserved.'
+    Assert-Equal $mbxPlan.EffectiveValue 'E:\.tools\mbx' 'Existing mbx data must not be displaced.'
+    $mbxPlan = Resolve-MrBoxingtonCache -UserValue 'C:\old-mbx' -MachineValue 'E:\shared-mbx' `
+        -ConfiguredCache 'D:\configured-mbx' `
+        -DesiredValue 'Q:\.tools\mbx' -SystemDriveRoot $systemRoot
+    Assert-Equal $mbxPlan.Action 'RemoveUser' 'A stale mbx user override must expose a non-system machine cache.'
+    Assert-Equal $mbxPlan.EffectiveValue 'E:\shared-mbx' 'mbx environment settings must precede file settings.'
+    $mbxPlan = Resolve-MrBoxingtonCache -UserValue 'D:\user-mbx' -MachineValue 'E:\shared-mbx' `
+        -ConfiguredCache 'Q:\configured-mbx' `
+        -DesiredValue 'Q:\.tools\mbx' -SystemDriveRoot $systemRoot
+    Assert-Equal $mbxPlan.Action 'PreserveUser' 'An existing non-system mbx user cache must be preserved.'
+
+    $installerTestRoot = Join-Path ([IO.Path]::GetTempPath()) "dev-cache-installer-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Path $installerTestRoot | Out-Null
+        $fixtureExecutable = Join-Path $installerTestRoot 'mbx.exe'
+        [IO.File]::WriteAllText($fixtureExecutable, 'isolated installer fixture')
+        $fixtureArchive = Join-Path $installerTestRoot 'release.zip'
+        Compress-Archive -LiteralPath $fixtureExecutable -DestinationPath $fixtureArchive
+        $fixtureHash = (Get-FileHash -LiteralPath $fixtureArchive -Algorithm SHA256).Hash
+
+        & {
+            function Get-Command {
+                param($Name, $CommandType, $ErrorAction)
+                return @(
+                    [PSCustomObject]@{ Source = $fixtureExecutable },
+                    [PSCustomObject]@{ Source = 'C:\another-install\mbx.exe' }
+                )
+            }
+            Assert-Equal (Install-MrBoxington -BinDirectory (Join-Path $installerTestRoot 'unused')) `
+                $fixtureExecutable 'The first installed mbx on PATH must be reused without downloading or upgrading it.'
+        }
+        & {
+            function Get-Command {
+                param($Name, $CommandType, $ErrorAction)
+                return $null
+            }
+            function Invoke-WebRequest {
+                param($Uri, $OutFile, [switch]$UseBasicParsing)
+                $script:mbxDownloadDirectory = Split-Path -Parent $OutFile
+                if ($Uri -like '*/SHA256SUMS') {
+                    $hash = if ($script:mbxRejectChecksum) { '0' * 64 } else { $fixtureHash }
+                    [IO.File]::WriteAllText($OutFile, "$hash  $script:mbxArchiveName`r`n")
+                }
+                else {
+                    $script:mbxArchiveName = ($Uri -split '/')[-1]
+                    Copy-Item -LiteralPath $fixtureArchive -Destination $OutFile
+                }
+            }
+            $script:mbxRejectChecksum = $false
+            $binDirectory = Join-Path $installerTestRoot 'installed'
+            $installed = Install-MrBoxington -BinDirectory $binDirectory
+            Assert-Equal $installed (Join-Path $binDirectory 'mbx.exe') 'mbx must install into the selected bin directory.'
+            Assert-Equal ([IO.File]::ReadAllText($installed)) 'isolated installer fixture' `
+                'The verified archive executable must be installed.'
+            Assert-True (-not (Test-Path -LiteralPath $script:mbxDownloadDirectory)) `
+                'Successful installation must clean up its downloads.'
+            Assert-Equal (Install-MrBoxington -BinDirectory $binDirectory) $installed `
+                'A previously installed executable must be reused even before PATH is refreshed.'
+
+            $script:mbxRejectChecksum = $true
+            $rejectedBin = Join-Path $installerTestRoot 'rejected'
+            $checksumRejected = $false
+            try {
+                Install-MrBoxington -BinDirectory $rejectedBin | Out-Null
+            }
+            catch {
+                $checksumRejected = $_.Exception.Message -like '*checksum verification failed*'
+            }
+            Assert-True $checksumRejected 'An archive with a mismatching checksum must be rejected explicitly.'
+            Assert-True (-not (Test-Path -LiteralPath $rejectedBin)) 'An unverified executable must not be installed.'
+            Assert-True (-not (Test-Path -LiteralPath $script:mbxDownloadDirectory)) `
+                'Failed installation must clean up its downloads.'
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $installerTestRoot) {
+            Remove-Item -LiteralPath $installerTestRoot -Recurse -Force
+        }
+        Remove-Variable -Name mbxDownloadDirectory, mbxRejectChecksum, mbxArchiveName -Scope Script -ErrorAction SilentlyContinue
+    }
+
     $auditValues = [ordered]@{
         NPM_CONFIG_CACHE          = 'Q:\.tools\.npm'
         NPM_CONFIG_PREFIX         = 'Q:\.tools\.npm-global'
@@ -175,6 +280,12 @@ if (-not $failed) {
     Assert-True `
         ($setupContent -notmatch 'skipped (Yarn|Composer) cache configuration') `
         'Supported cache locations must not be skipped when their commands are absent.'
+    Assert-True ($setupContent -notmatch "Set-UserEnvironmentVariable -Name 'RUSTC_WRAPPER'") `
+        'Setup must not enable sccache, which prevents Mr Boxington caching.'
+    Assert-True ($setupContent -match 'Install-MrBoxington -BinDirectory \$cargoBin') `
+        'Setup must install Mr Boxington, not only configure a future installation.'
+    Assert-True ($setupContent -match 'Enable-MrBoxington -Command \$mbxCommand') `
+        'Setup must activate the Cargo shim.'
 
     $rustToolchains = @(
         Get-InstalledRustupToolchains -Output @(

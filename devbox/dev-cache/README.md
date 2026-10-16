@@ -19,6 +19,8 @@ Use a different absolute fallback root when needed:
 
 `CacheRoot` is a fallback for caches that need relocation. It does not replace an effective cache already located on `Q:` or another non-system drive.
 
+Setup also installs [Mr Boxington (`mbx`)](https://mr-boxington.jdx.dev/) when missing and enables its shared Rust build cache. Installing requires network access to GitHub Releases; an existing installation is reused without upgrading it.
+
 Existing tool-cache contents are migrated by default when applying redirects:
 
 ```powershell
@@ -78,11 +80,35 @@ NuGet fallbacks use `<CacheRoot>\.nuget\packages`, `<CacheRoot>\.nuget\v3-cache`
 
 When its effective cache is missing or `C:`-based, Yarn uses `<CacheRoot>\.yarn` and Composer uses `<CacheRoot>\composer`. These environment redirects are configured even when the corresponding command is not installed, so later installations inherit the relocated caches. Existing non-`C:` settings remain untouched.
 
-Go's `GOBIN` remains at its default user-profile location. `CARGO_INSTALL_ROOT` keeps `cargo install` executables under `~\.cargo\bin` on `C:`, while Cargo caches and Rust toolchains use their selected relocated homes. `GOPATH` and project-local Rust `target` directories are unchanged.
+Go's `GOBIN` remains at its default user-profile location, and `GOPATH` is unchanged. `CARGO_INSTALL_ROOT` keeps `cargo install` executables under `~\.cargo\bin` on `C:`, while Cargo caches and Rust toolchains use their selected relocated homes. Rust `target` directories may become mbx-managed when a build runs, as described below.
 
-When `sccache` is installed, the script sets `RUSTC_WRAPPER=sccache`. When Composer is installed, its global configuration is also synchronized with the effective `COMPOSER_CACHE_DIR`. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
+When Composer is installed, its global configuration is also synchronized with the effective `COMPOSER_CACHE_DIR`. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
 
 When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. If migration leaves no default, setup selects the exact already-installed `stable-*` toolchain when there is one, or the sole installed toolchain. Using the full installed name prevents a download. Ambiguous toolchain sets without one stable candidate still stop for explicit user choice.
+
+## Mr Boxington build cache
+
+On Windows x64 and ARM64, setup downloads the official prebuilt release, verifies its SHA-256 against the release's `SHA256SUMS`, and installs `mbx.exe` into `~\.cargo\bin`. No Cargo compilation, Rust toolchain download, or administrator access is required to install mbx itself; builds still require a working Rust toolchain and any native build tools the project needs.
+
+Missing or system-drive cache settings use `<CacheRoot>\mbx` (`Q:\.tools\mbx` by default). Existing non-system `MBX_CACHE_DIR` User/Machine values retain the same precedence as other redirects. Without persistent environment overrides, setup preserves an existing non-system `cache_dir` in `%APPDATA%\mbx\config.toml`, or updates that setting with `mbx settings set cache_dir`. Unrelated mbx settings are retained. The action store lives in `mbx\actions`; managed targets default to `mbx\targets`, unless a separate `target.root` is already configured.
+
+Setup runs `mbx setup --yes` to install its Cargo shim and configure rust-analyzer without replacing existing editor check settings. It prepends `%LOCALAPPDATA%\mbx\bin` to the User and current-process `PATH`, ahead of Rustup's Cargo, so ordinary `cargo build`, `cargo test`, and `cargo check` use mbx. If mise is active, mbx may also configure the recommended mise scope. Restart already-open shells and desktop applications to pick up the persistent `PATH` change. A Cargo executable earlier on the Machine `PATH` must be reordered there separately.
+
+mbx and sccache cannot wrap the same Rust build. Setup no longer enables `RUSTC_WRAPPER=sccache` and removes that exact legacy User setting from earlier runs. Other persistent or process-level `RUSTC_WRAPPER` / `RUSTC_WORKSPACE_WRAPPER` settings stop setup with an actionable error rather than silently disabling mbx. Remove any conflicting `build.rustc-wrapper` / `build.rustc-workspace-wrapper` entries in Cargo configuration too; `mbx doctor` does not detect those. `SCCACHE_DIR` remains configured for other uses of sccache.
+
+Existing mbx cache contents are **not** bulk-migrated, even with `-MigrateExisting`. Moving managed targets and their absolute links as ordinary cache files can break checkouts or running builds. Old data is left intact and a relocation starts with a cold cache; follow [mbx's target-placement guidance](https://mr-boxington.jdx.dev/managed-targets#change-target-placement) when moving existing managed targets. On Windows, managed targets require Developer Mode or appropriate privileges to create links; otherwise Cargo keeps its ordinary target directories. ReFS on the same volume permits cloned restores; NTFS uses copies.
+
+After starting a new shell, inspect the effective setup:
+
+```powershell
+(Get-Command cargo).Source
+mbx setup --status
+mbx settings get cache_dir
+mbx cache dir
+mbx doctor
+```
+
+Cargo should resolve to the mbx shim (or an activated mise wrapper), and `mbx cache dir` should print the selected cache directory followed by `\actions`. To verify reuse rather than Cargo's own freshness checks, build the same workspace into two fresh target directories and inspect `mbx explain --last`.
 
 ## pnpm per-drive store
 
@@ -98,7 +124,7 @@ Existing Windows `TEMP` and `TMP` contents are never bulk-moved because unrelate
 
 ## Validate
 
-Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, pnpm behavior, Rustup toolchain detection, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. It runs PSScriptAnalyzer when installed:
+Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, mbx cache selection and verified installation, pnpm behavior, Rustup toolchain detection, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. Installer tests use local archives without downloads or changes to installed tools. It runs PSScriptAnalyzer when installed:
 
 ```powershell
 .\devbox\dev-cache\validate.ps1
