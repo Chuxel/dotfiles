@@ -29,6 +29,8 @@ Existing tool-cache contents are migrated by default when applying redirects:
 
 Migration merges cache directories and de-duplicates identical files. When an interrupted migration leaves different versions of a cache file at both locations, the newer file wins; every copied file is hash-verified. Files locked by a running tool are reported and left at the source for a later run. Rerunning therefore converges safely instead of failing on cache entries updated or held open between runs.
 
+Migration rejects overlapping source/destination directories, file/directory collisions, and unexpected destination reparse points before moving contents. Migration roots must be physical directories, not junctions or symbolic links.
+
 Disable migration for a configuration-only run:
 
 ```powershell
@@ -90,7 +92,7 @@ When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes
 
 On Windows x64 and ARM64, setup downloads the official prebuilt release, verifies its SHA-256 against the release's `SHA256SUMS`, and installs `mbx.exe` into `~\.cargo\bin`. No Cargo compilation, Rust toolchain download, or administrator access is required to install mbx itself; builds still require a working Rust toolchain and any native build tools the project needs.
 
-Missing or system-drive cache settings use `<CacheRoot>\mbx` (`Q:\.tools\mbx` by default). Existing non-system `MBX_CACHE_DIR` User/Machine values retain the same precedence as other redirects. Without persistent environment overrides, setup preserves an existing non-system `cache_dir` in `%APPDATA%\mbx\config.toml`, or updates that setting with `mbx settings set cache_dir`. Unrelated mbx settings are retained. The action store lives in `mbx\actions`; managed targets default to `mbx\targets`, unless a separate `target.root` is already configured.
+Missing or system-drive cache settings use `<CacheRoot>\mbx` (`Q:\.tools\mbx` by default). An empty result from `mbx settings get cache_dir` is treated as an unset setting. Existing non-system `MBX_CACHE_DIR` User/Machine values retain the same precedence as other redirects. Without persistent environment overrides, setup preserves an existing non-system `cache_dir` in `%APPDATA%\mbx\config.toml`, or updates that setting with `mbx settings set cache_dir`. Unrelated mbx settings are retained. The action store lives in `mbx\actions`; managed targets default to `mbx\targets`, unless a separate `target.root` is already configured.
 
 Setup runs `mbx setup --yes` to install its Cargo shim and configure rust-analyzer without replacing existing editor check settings. It prepends `%LOCALAPPDATA%\mbx\bin` to the User and current-process `PATH`, ahead of Rustup's Cargo, so ordinary `cargo build`, `cargo test`, and `cargo check` use mbx. If mise is active, mbx may also configure the recommended mise scope. Restart already-open shells and desktop applications to pick up the persistent `PATH` change. A Cargo executable earlier on the Machine `PATH` must be reordered there separately.
 

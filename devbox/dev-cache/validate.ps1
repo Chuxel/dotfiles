@@ -163,6 +163,18 @@ if (-not $failed) {
         -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
     Assert-Equal $mbxPlan.Action 'SetConfig' 'The default mbx cache must be redirected persistently.'
     Assert-Equal $mbxPlan.EffectiveValue 'D:\.tools\mbx' 'mbx must use the requested fallback drive.'
+    foreach ($configuredCache in @('', '   ')) {
+        $mbxPlan = Resolve-MrBoxingtonCache -UserValue $null -MachineValue $null `
+            -ConfiguredCache $configuredCache `
+            -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
+        Assert-Equal $mbxPlan.Action 'SetConfig' 'An unset mbx file setting must select the fallback cache.'
+        Assert-Equal $mbxPlan.EffectiveValue 'D:\.tools\mbx' 'An unset mbx file setting must use the requested drive.'
+    }
+    $mbxPlan = Resolve-MrBoxingtonCache -UserValue $null -MachineValue 'E:\shared-mbx' `
+        -ConfiguredCache '' `
+        -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
+    Assert-Equal $mbxPlan.Action 'PreserveMachine' 'An unset mbx file setting must not override a persistent cache.'
+    Assert-Equal $mbxPlan.EffectiveValue 'E:\shared-mbx' 'The persistent cache must take precedence over an unset file setting.'
     $mbxPlan = Resolve-MrBoxingtonCache -UserValue $null -MachineValue $null `
         -ConfiguredCache 'E:\.tools\mbx' `
         -DesiredValue 'D:\.tools\mbx' -SystemDriveRoot $systemRoot
@@ -357,6 +369,73 @@ if (-not $failed) {
         Assert-True $collisionRejected 'Different destination content must stop migration.'
         Assert-True (Test-Path -LiteralPath (Join-Path $collisionSource 'must-remain.txt')) 'Collision preflight must prevent partial moves.'
 
+        $overlapSource = Join-Path $migrationTestRoot 'overlap'
+        New-Item -ItemType Directory -Path $overlapSource -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $overlapSource 'cache.bin'), 'must remain')
+        foreach ($paths in @(
+            @($overlapSource, (Join-Path $overlapSource 'nested')),
+            @($overlapSource, $migrationTestRoot)
+        )) {
+            $overlapRejected = $false
+            try {
+                Move-DirectoryContents -Source $paths[0] -Destination $paths[1] -ResolveCacheConflicts
+            }
+            catch {
+                $overlapRejected = $_.Exception.Message -like '*overlap*'
+            }
+            Assert-True $overlapRejected 'Overlapping migration roots must be rejected before any contents move.'
+            Assert-Equal ([IO.File]::ReadAllText((Join-Path $overlapSource 'cache.bin'))) `
+                'must remain' 'An overlapping migration must preserve source content.'
+        }
+
+        $typeSource = Join-Path $migrationTestRoot 'type-source'
+        $typeDestination = Join-Path $migrationTestRoot 'type-destination'
+        New-Item -ItemType Directory -Path $typeSource, (Join-Path $typeDestination 'cache') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $typeSource 'cache'), 'must remain')
+        [IO.File]::SetLastWriteTimeUtc((Join-Path $typeSource 'cache'), [DateTime]::UtcNow.AddDays(-1))
+        $typeRejected = $false
+        try {
+            Move-DirectoryContents -Source $typeSource -Destination $typeDestination -ResolveCacheConflicts
+        }
+        catch {
+            $typeRejected = $_.Exception.Message -like '*collision*'
+        }
+        Assert-True $typeRejected 'Cache conflict resolution must reject file/directory collisions.'
+        Assert-Equal ([IO.File]::ReadAllText((Join-Path $typeSource 'cache'))) `
+            'must remain' 'A type collision must not delete the source file.'
+
+        $redirectSource = Join-Path $migrationTestRoot 'redirect-source'
+        $redirectDestination = Join-Path $migrationTestRoot 'redirect-destination'
+        $redirectTarget = Join-Path $migrationTestRoot 'redirect-target'
+        New-Item -ItemType Directory -Path (Join-Path $redirectSource 'nested'), $redirectDestination, $redirectTarget -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $redirectSource 'nested\cache.bin'), 'must remain')
+        New-Item -ItemType Junction -Path (Join-Path $redirectDestination 'nested') -Target $redirectTarget | Out-Null
+        $redirectRejected = $false
+        try {
+            Move-DirectoryContents -Source $redirectSource -Destination $redirectDestination -ResolveCacheConflicts
+        }
+        catch {
+            $redirectRejected = $_.Exception.Message -like '*reparse point*'
+        }
+        Assert-True $redirectRejected 'Cache conflict resolution must not traverse destination reparse points.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $redirectTarget 'cache.bin'))) `
+            'A destination junction must not redirect migrated writes outside the cache.'
+        Assert-True (Test-Path -LiteralPath (Join-Path $redirectSource 'nested\cache.bin')) `
+            'A rejected destination junction must preserve source content.'
+        foreach ($paths in @(
+            @((Join-Path $redirectDestination 'nested'), (Join-Path $migrationTestRoot 'root-destination')),
+            @((Join-Path $redirectSource 'nested'), (Join-Path $redirectDestination 'nested'))
+        )) {
+            $rootLinkRejected = $false
+            try {
+                Move-DirectoryContents -Source $paths[0] -Destination $paths[1] -ResolveCacheConflicts
+            }
+            catch {
+                $rootLinkRejected = $_.Exception.Message -like '*root reparse point*'
+            }
+            Assert-True $rootLinkRejected 'Migration roots must not traverse reparse points.'
+        }
+
         $resumableSource = Join-Path $migrationTestRoot 'resumable-source'
         $resumableDestination = Join-Path $migrationTestRoot 'resumable-destination'
         New-Item -ItemType Directory -Path $resumableSource, $resumableDestination -Force | Out-Null
@@ -440,6 +519,27 @@ if (-not $failed) {
         }
         finally {
             $freshLockedStream.Dispose()
+        }
+
+        $deleteLockedStream = [IO.File]::Open(
+            $freshLockedSourceFile,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read)
+        try {
+            Move-DirectoryContents `
+                -Source $freshLockedSource `
+                -Destination $freshLockedDestination `
+                -ResolveCacheConflicts
+            Assert-True (Test-Path -LiteralPath $freshLockedSourceFile) `
+                'A readable file locked against deletion must remain at its source.'
+            Assert-True (-not (Test-Path -LiteralPath $freshLockedDestinationFile)) `
+                'A failed source deletion must clean up the newly created copy.'
+            Assert-Equal @(Get-ChildItem -LiteralPath $freshLockedDestination -Force).Count 0 `
+                'A failed migration must clean up its staging files.'
+        }
+        finally {
+            $deleteLockedStream.Dispose()
         }
 
         $cargoSource = Join-Path $migrationTestRoot 'cargo-source'

@@ -205,10 +205,19 @@ function Assert-DirectoryMigrationCompatible {
         $destinationIsReparsePoint =
             ($destinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
         if ($sourceIsReparsePoint) {
-            $mappedTarget = Get-MappedReparseTarget `
-                -Item $sourceItem `
-                -SourceRoot $MigrationSourceRoot `
-                -DestinationRoot $MigrationDestinationRoot
+            try {
+                $mappedTarget = Get-MappedReparseTarget `
+                    -Item $sourceItem `
+                    -SourceRoot $MigrationSourceRoot `
+                    -DestinationRoot $MigrationDestinationRoot
+            }
+            catch {
+                if (-not $ResolveCacheConflicts) {
+                    throw
+                }
+                # The move pass reports and retains unsupported source links.
+                continue
+            }
             if ($destinationIsReparsePoint) {
                 $destinationTarget = Resolve-ReparseTarget -Item $destinationItem
                 if ($destinationTarget.Resolved -ne
@@ -284,6 +293,10 @@ function Move-DirectoryContents {
     if ($sourcePath.TrimEnd('\') -eq $destinationPath.TrimEnd('\')) {
         return
     }
+    if ($sourcePath.StartsWith("$($destinationPath.TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase) -or
+        $destinationPath.StartsWith("$($sourcePath.TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Migration source and destination must not overlap: $sourcePath -> $destinationPath"
+    }
     if ($sourcePath.TrimEnd('\') -eq [IO.Path]::GetPathRoot($sourcePath).TrimEnd('\')) {
         throw "Refusing to migrate a drive root: $sourcePath"
     }
@@ -296,6 +309,12 @@ function Move-DirectoryContents {
     }
     if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
         throw "Migration source is not a directory: $sourcePath"
+    }
+    foreach ($path in @($sourcePath, $destinationPath)) {
+        if ((Test-Path -LiteralPath $path) -and
+            ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Migration refuses a root reparse point: $path"
+        }
     }
 
     $eligibleItems = @(
@@ -310,14 +329,13 @@ function Move-DirectoryContents {
     }
 
     New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
-    if (-not $ResolveCacheConflicts) {
-        Assert-DirectoryMigrationCompatible `
-            -Source $sourcePath `
-            -Destination $destinationPath `
-            -ExcludeNames $ExcludeNames `
-            -MigrationSourceRoot $MigrationSourceRoot `
-            -MigrationDestinationRoot $MigrationDestinationRoot
-    }
+    Assert-DirectoryMigrationCompatible `
+        -Source $sourcePath `
+        -Destination $destinationPath `
+        -ExcludeNames $ExcludeNames `
+        -MigrationSourceRoot $MigrationSourceRoot `
+        -MigrationDestinationRoot $MigrationDestinationRoot `
+        -ResolveCacheConflicts:$ResolveCacheConflicts
 
     foreach ($sourceItem in $eligibleItems) {
         if (-not (Test-Path -LiteralPath $sourceItem.FullName)) {
@@ -439,26 +457,34 @@ function Move-DirectoryContents {
                 [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
             }
             else {
+                $copyCreated = $false
+                $temporaryCopyPath = Join-Path $destinationPath ".dev-cache-$([Guid]::NewGuid().ToString('N')).tmp"
                 try {
-                    [IO.File]::Copy($sourceItem.FullName, $destinationItemPath, $false)
-                    $copiedHash = (Get-FileHash -LiteralPath $destinationItemPath -Algorithm SHA256).Hash
+                    [IO.File]::Copy($sourceItem.FullName, $temporaryCopyPath, $false)
+                    $copiedHash = (Get-FileHash -LiteralPath $temporaryCopyPath -Algorithm SHA256).Hash
                     $sourceHash = (Get-FileHash -LiteralPath $sourceItem.FullName -Algorithm SHA256).Hash
                     if ($copiedHash -ne $sourceHash) {
-                        Remove-Item -LiteralPath $destinationItemPath -Force
                         throw "Migration copy verification failed: $($sourceItem.FullName)"
                     }
+                    [IO.File]::Move($temporaryCopyPath, $destinationItemPath)
+                    $copyCreated = $true
+                    [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
                     [IO.File]::SetAttributes($sourceItem.FullName, [IO.FileAttributes]::Normal)
                     [IO.File]::Delete($sourceItem.FullName)
-                    [IO.File]::SetAttributes($destinationItemPath, $sourceAttributes)
                 }
                 catch [IO.IOException], [UnauthorizedAccessException] {
                     if (-not $ResolveCacheConflicts) {
                         throw
                     }
-                    if (Test-Path -LiteralPath $destinationItemPath) {
+                    if ($copyCreated -and (Test-Path -LiteralPath $destinationItemPath)) {
                         Remove-Item -LiteralPath $destinationItemPath -Force
                     }
                     Write-Warning "Cache file is in use and will be retried later: $($sourceItem.FullName)"
+                }
+                finally {
+                    if (Test-Path -LiteralPath $temporaryCopyPath) {
+                        Remove-Item -LiteralPath $temporaryCopyPath -Force
+                    }
                 }
             }
             continue
@@ -711,6 +737,7 @@ function Resolve-MrBoxingtonCache {
         [string]$MachineValue,
 
         [Parameter(Mandatory)]
+        [AllowEmptyString()]
         [string]$ConfiguredCache,
 
         [Parameter(Mandatory)]
@@ -782,7 +809,7 @@ function Set-MrBoxingtonCache {
         }
     }
     New-Item -ItemType Directory -Path $selectedCache -Force | Out-Null
-    if ($configuredCache -ne $selectedCache) {
+    if (-not [string]::IsNullOrWhiteSpace($configuredCache) -and $configuredCache -ne $selectedCache) {
         Write-Warning "Mr Boxington data at '$configuredCache' was not moved. Existing managed targets must be relocated by mbx, not bulk-migrated."
     }
     Write-Host "Mr Boxington build cache: $selectedCache"
