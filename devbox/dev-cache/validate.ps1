@@ -69,6 +69,8 @@ if (-not $failed) {
     $testFunctionNames = @(
         'Get-PathDriveRoot',
         'Resolve-EnvironmentRedirect',
+        'Write-BazelMigrationWarning',
+        'Set-BazelCacheRedirects',
         'Test-PathListContains',
         'Get-PrependedPath',
         'Install-MrBoxington',
@@ -137,6 +139,122 @@ if (-not $failed) {
         -DesiredValue 'Q:\.tools\.nuget\v3-cache' `
         -SystemDriveRoot $systemRoot
     Assert-Equal $cDrivePlan.Action 'SetUser' 'An effective C:-based cache must be redirected.'
+
+    $bazelDefaults = [ordered]@{
+        XDG_CACHE_HOME = 'E:\.tools\cache'
+        COPILOT_BAZEL_OUTPUT_USER_ROOT = 'E:\b'
+    }
+    foreach ($entry in $bazelDefaults.GetEnumerator()) {
+        foreach ($case in @(
+            @{ User = $null; Machine = $null; Action = 'SetUser'; Value = $entry.Value },
+            @{ User = 'C:\old-cache'; Machine = $null; Action = 'SetUser'; Value = $entry.Value },
+            @{ User = $null; Machine = 'C:\old-cache'; Action = 'SetUser'; Value = $entry.Value },
+            @{ User = 'relative-cache'; Machine = $null; Action = 'SetUser'; Value = $entry.Value },
+            @{ User = $null; Machine = 'D:\machine-cache'; Action = 'PreserveMachine'; Value = 'D:\machine-cache' },
+            @{ User = 'C:\old-cache'; Machine = 'D:\machine-cache'; Action = 'RemoveUser'; Value = 'D:\machine-cache' },
+            @{ User = 'F:\user-cache'; Machine = 'D:\machine-cache'; Action = 'PreserveUser'; Value = 'F:\user-cache' }
+        )) {
+            $bazelPlan = Resolve-EnvironmentRedirect -Name $entry.Key `
+                -UserValue $case.User -MachineValue $case.Machine `
+                -DesiredValue $entry.Value -SystemDriveRoot $systemRoot
+            Assert-Equal $bazelPlan.Action $case.Action "$($entry.Key) must follow existing redirect precedence."
+            Assert-Equal $bazelPlan.EffectiveValue $case.Value "$($entry.Key) must select the expected persistent path."
+        }
+    }
+    & {
+        $recordedPlans = [Collections.Generic.List[object]]::new()
+        $migrationReports = [Collections.Generic.List[object]]::new()
+        function Resolve-EnvironmentRedirect {
+            param($Name, $UserValue, $MachineValue, $DesiredValue, $SystemDriveRoot)
+            return [PSCustomObject]@{
+                Name = $Name; Action = 'SetUser'; EffectiveValue = $DesiredValue; PreviousValue = 'C:\old-cache'
+            }
+        }
+        function Apply-EnvironmentRedirect {
+            param($Plan, [switch]$MigrateExisting)
+            Assert-True (-not $MigrateExisting) 'Bazel redirects must never request a bulk migration.'
+            $recordedPlans.Add($Plan)
+        }
+        function Write-BazelMigrationWarning {
+            param($Source, $Destination)
+            $migrationReports.Add([PSCustomObject]@{ Source = $Source; Destination = $Destination })
+        }
+        function Move-DirectoryContents {
+            throw 'Bazel setup must not invoke the generic migration helper.'
+        }
+        Set-BazelCacheRedirects -CacheRoot 'D:\nested\tools' -SystemDriveRoot 'C:\' -MigrateExisting
+        Assert-Equal $recordedPlans.Count 2 'Setup must configure both XDG and Bazel output storage.'
+        Assert-Equal $recordedPlans[0].Name 'XDG_CACHE_HOME' 'Bazel caches must derive from the shared XDG root.'
+        Assert-Equal $recordedPlans[0].EffectiveValue 'D:\nested\tools\cache' 'XDG caches must use CacheRoot.'
+        Assert-Equal $recordedPlans[1].Name 'COPILOT_BAZEL_OUTPUT_USER_ROOT' 'Bazel output storage needs an explicit redirect.'
+        Assert-Equal $recordedPlans[1].EffectiveValue 'D:\b' 'Bazel output storage must use a short path on the requested drive.'
+        foreach ($cacheName in @('copilot-bazel-disk', 'copilot-bazel-incremental')) {
+            Assert-True (@($migrationReports | Where-Object {
+                $_.Source -eq (Join-Path $HOME ".cache\$cacheName") -and
+                $_.Destination -eq "D:\nested\tools\cache\$cacheName"
+            }).Count -eq 1) 'Only the known Bazel children of the default XDG root must be reported.'
+        }
+        Assert-True (@($migrationReports | Where-Object {
+            $_.Source -eq 'C:\b' -and $_.Destination -eq 'D:\b'
+        }).Count -eq 1) 'The old system-drive output root must be reported for offline review.'
+
+        $recordedPlans.Clear()
+        $migrationReports.Clear()
+        Set-BazelCacheRedirects -CacheRoot 'E:\.tools' -SystemDriveRoot 'C:\'
+        Assert-Equal $recordedPlans.Count 2 'Configuration-only runs must still configure both redirects.'
+        Assert-Equal $migrationReports.Count 0 'Disabling migration must skip old Bazel storage inspection.'
+    }
+
+    $bazelTestRoot = Join-Path ([IO.Path]::GetTempPath()) "dev-cache-bazel-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        $oldCache = Join-Path $bazelTestRoot 'old-cache'
+        $newCache = Join-Path $bazelTestRoot 'new-cache'
+        foreach ($child in @('copilot-bazel-disk', 'copilot-bazel-incremental\worktree-a', 'b')) {
+            $directory = Join-Path $oldCache $child
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            [IO.File]::WriteAllText((Join-Path $directory 'state.bin'), "absolute state for $child")
+        }
+        $unrelatedPath = Join-Path $oldCache 'unrelated-cache.bin'
+        [IO.File]::WriteAllText($unrelatedPath, 'must remain')
+        $lockedPath = Join-Path $oldCache 'copilot-bazel-incremental\worktree-a\state.bin'
+        $lockedFile = [IO.File]::Open($lockedPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            $deferredWarnings = @()
+            foreach ($child in @('copilot-bazel-disk', 'copilot-bazel-incremental', 'b')) {
+                Write-BazelMigrationWarning `
+                    -Source (Join-Path $oldCache $child) -Destination (Join-Path $newCache $child) `
+                    -WarningVariable +deferredWarnings -WarningAction SilentlyContinue
+            }
+            Assert-Equal $deferredWarnings.Count 3 'Both Bazel caches and output trees must be explicitly deferred.'
+            Assert-True (@($deferredWarnings | Where-Object { "$_" -notlike '*left intact*' }).Count -eq 0) `
+                'Deferred migration must explain that old storage was retained.'
+            Assert-True (-not (Test-Path -LiteralPath $newCache)) 'Deferred migration must not create or populate destinations.'
+            Assert-Equal ([IO.File]::ReadAllText($unrelatedPath)) 'must remain' 'Unrelated XDG data must be untouched.'
+            Assert-True (Test-Path -LiteralPath $lockedPath) 'Active incremental data must remain at its original path.'
+        }
+        finally {
+            $lockedFile.Dispose()
+        }
+        foreach ($child in @('copilot-bazel-disk', 'copilot-bazel-incremental\worktree-a', 'b')) {
+            Assert-Equal ([IO.File]::ReadAllText((Join-Path $oldCache "$child\state.bin"))) `
+                "absolute state for $child" 'Bazel state must not be copied, deleted, or rewritten.'
+        }
+        $noMigrationWarnings = @()
+        Write-BazelMigrationWarning -Source $oldCache -Destination "$oldCache\" `
+            -WarningVariable +noMigrationWarnings -WarningAction SilentlyContinue
+        Write-BazelMigrationWarning -Source (Join-Path $bazelTestRoot 'missing') -Destination $newCache `
+            -WarningVariable +noMigrationWarnings -WarningAction SilentlyContinue
+        Assert-Equal $noMigrationWarnings.Count 0 'Unchanged and nonexistent roots must not report a pending migration.'
+        $relativeWarnings = @()
+        Write-BazelMigrationWarning -Source 'relative-cache' -Destination $newCache `
+            -WarningVariable relativeWarnings -WarningAction SilentlyContinue
+        Assert-Equal $relativeWarnings.Count 1 'Non-absolute prior storage must be explicitly deferred.'
+    }
+    finally {
+        if (Test-Path -LiteralPath $bazelTestRoot) {
+            Remove-Item -LiteralPath $bazelTestRoot -Recurse -Force
+        }
+    }
 
     $machinePath = 'Q:\.tools\dotnet;Q:\.tools\.npm-global'
     Assert-True `
@@ -298,6 +416,10 @@ if (-not $failed) {
         'Setup must install Mr Boxington, not only configure a future installation.'
     Assert-True ($setupContent -match 'Enable-MrBoxington -Command \$mbxCommand') `
         'Setup must activate the Cargo shim.'
+    Assert-True ($setupContent -match 'Set-BazelCacheRedirects -CacheRoot \$CacheRoot') `
+        'Setup must invoke Bazel redirect configuration.'
+    Assert-True ($setupContent -notmatch 'COPILOT_BAZEL_INCREMENTAL_DIR\s*=') `
+        'Setup must not globally override the worktree-specific incremental directory.'
 
     $rustToolchains = @(
         Get-InstalledRustupToolchains -Output @(

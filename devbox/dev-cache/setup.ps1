@@ -6,7 +6,7 @@
     Creates per-tool cache directories beneath CacheRoot, persists the corresponding
     user environment variables, and configures installed package managers. Installs
     and activates Mr Boxington for Rust builds. Existing tool caches are migrated
-    by default, except for Mr Boxington's managed build data.
+    by default, except for Mr Boxington's managed build data and Bazel build caches.
 
 .PARAMETER CacheRoot
     Absolute filesystem path that will contain the developer caches.
@@ -14,7 +14,8 @@
 .PARAMETER MigrateExisting
     Moves existing tool-cache contents into newly selected locations. Enabled by
     default; pass -MigrateExisting:$false for configuration only. Windows TEMP/TMP
-    contents and Cargo-installed binaries and install metadata remain in place.
+    contents, Bazel build caches, and Cargo-installed binaries and install metadata
+    remain in place. Existing Bazel storage is reported for offline review.
 
 .EXAMPLE
     .\devbox\dev-cache\setup.ps1
@@ -596,6 +597,92 @@ function Apply-EnvironmentRedirect {
     }
 
     Set-Item -LiteralPath "Env:$($Plan.Name)" -Value $Plan.EffectiveValue
+}
+
+function Write-BazelMigrationWarning {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Source,
+
+        [Parameter(Mandatory)]
+        [string]$Destination
+    )
+
+    if ($null -eq (Get-PathDriveRoot -Path $Source)) {
+        Write-Warning "Bazel migration deferred for non-absolute path '$Source'; existing contents were left intact."
+        return
+    }
+    $sourcePath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Source))
+    $destinationPath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Destination))
+    if ($sourcePath.TrimEnd('\') -ne $destinationPath.TrimEnd('\') -and
+        (Test-Path -LiteralPath $sourcePath)) {
+        Write-Warning "Bazel migration deferred: '$sourcePath' was left intact; future builds use '$destinationPath'. Bazel servers may still be using the old tree, and build state can contain absolute paths. Stop affected builds/servers before reviewing old data for tool-supported migration or cleanup; setup does not move or delete it."
+    }
+}
+
+function Set-BazelCacheRedirects {
+    param(
+        [Parameter(Mandatory)]
+        [string]$CacheRoot,
+
+        [Parameter(Mandatory)]
+        [string]$SystemDriveRoot,
+
+        [switch]$MigrateExisting
+    )
+
+    $redirects = [ordered]@{
+        XDG_CACHE_HOME = Join-Path $CacheRoot 'cache'
+        COPILOT_BAZEL_OUTPUT_USER_ROOT = Join-Path ([IO.Path]::GetPathRoot($CacheRoot)) 'b'
+    }
+    foreach ($entry in $redirects.GetEnumerator()) {
+        $userValue = [Environment]::GetEnvironmentVariable($entry.Key, 'User')
+        $machineValue = [Environment]::GetEnvironmentVariable($entry.Key, 'Machine')
+        $processValue = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
+        $plan = Resolve-EnvironmentRedirect `
+            -Name $entry.Key -UserValue $userValue -MachineValue $machineValue `
+            -DesiredValue $entry.Value -SystemDriveRoot $SystemDriveRoot
+        # Never bulk-migrate a general XDG root or a potentially live Bazel tree.
+        Apply-EnvironmentRedirect -Plan $plan
+
+        if (-not $MigrateExisting) {
+            continue
+        }
+        $defaultSource = if ($entry.Key -eq 'XDG_CACHE_HOME') {
+            Join-Path $HOME '.cache'
+        }
+        else {
+            Join-Path $SystemDriveRoot 'b'
+        }
+        $previousRoots = @(
+            @($defaultSource, $userValue, $machineValue, $processValue) |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                Select-Object -Unique
+        )
+        foreach ($sourceRoot in $previousRoots) {
+            if ($entry.Key -eq 'XDG_CACHE_HOME') {
+                if ($null -eq (Get-PathDriveRoot -Path $sourceRoot)) {
+                    Write-Warning "Bazel migration deferred for non-absolute XDG cache root '$sourceRoot'; existing contents were left intact."
+                    continue
+                }
+                foreach ($cacheName in @('copilot-bazel-disk', 'copilot-bazel-incremental')) {
+                    Write-BazelMigrationWarning `
+                        -Source (Join-Path $sourceRoot $cacheName) `
+                        -Destination (Join-Path $plan.EffectiveValue $cacheName)
+                }
+            }
+            else {
+                Write-BazelMigrationWarning -Source $sourceRoot -Destination $plan.EffectiveValue
+            }
+        }
+    }
+
+    foreach ($scope in @('User', 'Machine', 'Process')) {
+        $incrementalOverride = [Environment]::GetEnvironmentVariable('COPILOT_BAZEL_INCREMENTAL_DIR', $scope)
+        if (-not [string]::IsNullOrWhiteSpace($incrementalOverride)) {
+            Write-Warning "Existing $scope COPILOT_BAZEL_INCREMENTAL_DIR override was left unchanged. It overrides XDG cache placement and must include a per-worktree leaf; do not point every worktree at one shared incremental directory."
+        }
+    }
 }
 
 function Test-PathListContains {
@@ -1285,6 +1372,8 @@ foreach ($entry in $cacheDirectories.GetEnumerator()) {
     }
     $effectiveValues[$entry.Key] = $plan.EffectiveValue
 }
+
+Set-BazelCacheRedirects -CacheRoot $CacheRoot -SystemDriveRoot $systemDriveRoot -MigrateExisting:$MigrateExisting
 
 $cargoInstallRoot = Join-Path $HOME '.cargo'
 $cargoBin = Join-Path $cargoInstallRoot 'bin'

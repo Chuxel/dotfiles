@@ -44,7 +44,7 @@ Windows builds a process environment from Machine values and then User values, s
 1. Preserves an existing User value on `Q:` or another non-`C:` drive.
 2. Otherwise preserves an existing Machine value on `Q:` or another non-`C:` drive without creating a duplicate User value.
 3. Removes a `C:`-based User override when doing so exposes a working Machine value on the requested cache drive.
-4. Creates a User value beneath `CacheRoot` only when the effective value is missing, relative, or `C:`-based.
+4. Creates a User value beneath `CacheRoot` only when the effective value is missing, relative, or `C:`-based. The Bazel output-root exception uses the short `b` directory at the root of the `CacheRoot` drive.
 
 The current PowerShell process receives the selected effective values immediately. New processes or a new sign-in are still required to receive all persistent environment and `PATH` changes.
 
@@ -77,6 +77,7 @@ On an unconfigured machine, the script creates only the directories needed for m
 | PHP and Python | `COMPOSER_CACHE_DIR`, `PIP_CACHE_DIR`, `POETRY_CACHE_DIR`, `UV_CACHE_DIR` |
 | Go, Java, and Rust | `GOCACHE`, `GOMODCACHE`, `GRADLE_USER_HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `SCCACHE_DIR` |
 | Native dependencies | `VCPKG_DEFAULT_BINARY_CACHE`, `VCPKG_DOWNLOADS` |
+| XDG and Copilot Bazel | `XDG_CACHE_HOME`, `COPILOT_BAZEL_OUTPUT_USER_ROOT` |
 
 NuGet fallbacks use `<CacheRoot>\.nuget\packages`, `<CacheRoot>\.nuget\v3-cache`, and `<CacheRoot>\.nuget\plugins-cache`. npm uses `<CacheRoot>\.npm` and `<CacheRoot>\.npm-global`; these match the audited `Q:\.tools` layout. The effective npm global prefix is added to `PATH` only when no equivalent User or Machine entry exists.
 
@@ -87,6 +88,16 @@ Go's `GOBIN` remains at its default user-profile location, and `GOPATH` is uncha
 When Composer is installed, its global configuration is also synchronized with the effective `COMPOSER_CACHE_DIR`. Maven's `~/.m2/settings.xml` is updated safely with `localRepository`; unrelated XML content and namespaces are retained, and malformed or ambiguous XML is rejected without replacement.
 
 When Rustup is installed, setup verifies that the selected `RUSTUP_HOME` exposes its installed toolchains and an active default before reporting success. If migration leaves no default, setup selects the exact already-installed `stable-*` toolchain when there is one, or the sole installed toolchain. Using the full installed name prevents a download. Ambiguous toolchain sets without one stable candidate still stop for explicit user choice.
+
+## XDG and Copilot Bazel caches
+
+Setup configures `XDG_CACHE_HOME=<CacheRoot>\cache` and `COPILOT_BAZEL_OUTPUT_USER_ROOT=<CacheRoot drive>\b` when their persistent values are missing, relative, or system-drive based. Both use the same User/Machine precedence and non-system-drive preservation rules as other redirects, even when Bazel is not installed. For example, `-CacheRoot 'E:\.tools'` selects `E:\.tools\cache` and the short output root `E:\b`. An existing non-system setting is retained rather than replaced by the fallback.
+
+The Copilot Bazel wrapper derives its shared disk cache and per-worktree incremental storage from `XDG_CACHE_HOME`, creating `copilot-bazel-disk` and `copilot-bazel-incremental` beneath it. The wrapper still appends its worktree basename/hash to the incremental root. Setup **never sets `COPILOT_BAZEL_INCREMENTAL_DIR`**: that override names the final worktree directory, not a shared parent, and setting it globally would break worktree isolation. Existing overrides are left unchanged with a warning to review their placement and isolation.
+
+The explicit `COPILOT_BAZEL_OUTPUT_USER_ROOT` prevents the wrapper's system-drive `b` fallback on NTFS as well as ReFS; no Dev Drive detection override is needed. Generated `.bazelrc.disk-cache` files are not edited because the wrapper regenerates them. Restart the shells and applications launching builds to receive the new environment. Other applications honoring XDG will also use the selected root for future cache data.
+
+**Existing Bazel storage is left intact, not bulk-migrated or deleted.** With migration enabled (the default), setup reports existing `copilot-bazel-disk` and `copilot-bazel-incremental` directories beneath `~\.cache` and prior User/Machine/current-process XDG roots, plus old explicit output roots and the system-drive `b` fallback, when they differ from the selected destinations. This conservative deferral also applies to apparently idle trees: detached Bazel servers can still be using them, and output/incremental state can embed absolute paths. Future builds may start cold. Review old storage separately after stopping affected builds and servers, using tool-supported migration or cleanup; setup does not stop processes. `-MigrateExisting:$false` skips the old-storage inspection as well as migration. Unrelated contents of `~\.cache` and prior XDG roots are never inspected recursively or moved.
 
 ## Mr Boxington build cache
 
@@ -118,7 +129,7 @@ The script deliberately does **not** set pnpm `store-dir` or create `<CacheRoot>
 
 ## Data safety
 
-By default, setup moves contents from previous environment paths and known default tool-cache locations. Pass `-MigrateExisting:$false` to configure future cache use only. npm global-prefix contents and Rust toolchains are included. Cargo's `bin`, `.crates.toml`, and `.crates2.json` stay under the user profile so installed commands and their metadata remain on `C:`.
+By default, setup moves contents from previous environment paths and known default tool-cache locations, except for the XDG/Bazel and mbx deferrals described above. Pass `-MigrateExisting:$false` to configure future cache use only. npm global-prefix contents and Rust toolchains are included. Cargo's `bin`, `.crates.toml`, and `.crates2.json` stay under the user profile so installed commands and their metadata remain on `C:`.
 
 Internal cache junctions, such as Bun package aliases, and file symbolic links, such as links within Cargo git checkouts, are recreated beneath the new cache root. If an earlier migration materialized a directory alias as a physical directory, that cache-only alias copy is replaced after its canonical target is verified. Reparse points targeting outside the migrated cache are rejected.
 
@@ -126,7 +137,7 @@ Existing Windows `TEMP` and `TMP` contents are never bulk-moved because unrelate
 
 ## Validate
 
-Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, mbx cache selection and verified installation, pnpm behavior, Rustup toolchain detection, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. Installer tests use local archives without downloads or changes to installed tools. It runs PSScriptAnalyzer when installed:
+Validation checks PowerShell parsing and isolated tests for Machine/User precedence, `PATH` behavior, missing and `C:`-based relocation, audited Machine-value preservation, Bazel redirect placement, worktree isolation and migration deferral, mbx cache selection and verified installation, pnpm behavior, Rustup toolchain detection, safe migration/merge/collision handling, Cargo exclusions, and Maven XML creation and preservation. Tests do not apply redirects to the machine. Installer tests use local archives without downloads or changes to installed tools. It runs PSScriptAnalyzer when installed:
 
 ```powershell
 .\devbox\dev-cache\validate.ps1
