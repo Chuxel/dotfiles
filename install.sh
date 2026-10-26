@@ -349,6 +349,7 @@ installGitCredentialManager() {
     if [ "$IS_WSL" = "true" ]; then
         local windows_gcm
         for candidate in \
+            "/mnt/c/Program Files/Git/ucrt64/bin/git-credential-manager.exe" \
             "/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe" \
             "/mnt/c/Program Files (x86)/Git Credential Manager/git-credential-manager.exe" \
             "/mnt/c/Program Files/Git Credential Manager/git-credential-manager.exe" \

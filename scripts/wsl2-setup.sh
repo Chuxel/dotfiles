@@ -18,7 +18,7 @@ fi
 # Install git, other useful stuff
 apt-get update
 apt-get install -y git curl ca-certificates nano zip unzip zsh
-git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager-core.exe"
+git config --global credential.helper "/mnt/c/Program\ Files/Git/ucrt64/bin/git-credential-manager.exe"
 
 # Install nvm, node, yarn, node-gyp deps
 if [ ! -e "/home/${USERNAME}/.nvm" ]; then
